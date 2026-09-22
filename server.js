@@ -785,25 +785,48 @@ function finish(out) {
   return out;
 }
 
-// ---------- scansione "Affari" lanciata dalla pagina ----------
-// Gira scanner.js in un processo a parte e ne legge l'avanzamento. Tra una scansione e l'altra
-// devono passare almeno 20 minuti: le scansioni ravvicinate sono quelle che hanno fatto
-// scattare il blocco di Cloudflare su CardTrader.
+// ---------- scansioni "Affari": automatiche finche' il server e' acceso ----------
+// Due giri, entrambi in un processo a parte (scanner.js):
+//  - VELOCE ogni 5 minuti, solo sulle ~80 espansioni "calde" (~20 secondi, ~80 richieste);
+//  - COMPLETO ogni ora, su tutte (~800 richieste), che ricalcola quali sono le calde.
+// In media ~0,5 richieste al secondo. Il blocco Cloudflare del 21/09 era nato da ~5.000
+// richieste in pochi minuti. Se una scansione fallisce, i giri automatici si fermano 15 minuti.
+// "node server.js --no-auto" li disattiva: resta solo il pulsante.
 const { spawn } = require("child_process");
 const OPP_FILE = path.join(__dirname, "opportunities.json");
-const SCAN_COOLDOWN = 20 * 60 * 1000;
-const scanJob = { running: false, done: 0, total: 0, found: 0, error: null };
-const lastScanAt = () => Date.parse(loadJson(OPP_FILE, null)?.generatedAt || 0) || 0;
+const FAST_EVERY = 5 * 60 * 1000, FULL_EVERY = 60 * 60 * 1000, BUTTON_GAP = 2 * 60 * 1000, BACKOFF = 15 * 60 * 1000;
+const AUTO = !process.argv.includes("--no-auto");
+const scanJob = { running: false, mode: null, done: 0, total: 0, found: 0, fresh: 0, error: null, errorAt: 0 };
+const oppTimes = () => {
+  const o = loadJson(OPP_FILE, null);
+  const last = Date.parse(o?.generatedAt || 0) || 0;
+  return { last, full: Date.parse(o?.fullAt || o?.generatedAt || 0) || 0, hasHot: !!(o?.hot?.length || o?.opportunities?.length) };
+};
+function nextAuto() {
+  const t = oppTimes();
+  if (!t.last || !t.hasHot || Date.now() - t.full >= FULL_EVERY) return { mode: "completo", at: Math.max(t.full + FULL_EVERY, scanJob.errorAt + BACKOFF) };
+  return { mode: "veloce", at: Math.max(Math.min(t.last + FAST_EVERY, t.full + FULL_EVERY), scanJob.errorAt + BACKOFF) };
+}
 
 function scanStatus() {
-  return { ...scanJob, lastScanAt: lastScanAt() || null, waitMinutes: Math.max(0, Math.ceil((lastScanAt() + SCAN_COOLDOWN - Date.now()) / 60000)) };
+  const t = oppTimes(), n = nextAuto();
+  return { ...scanJob, auto: AUTO, lastScanAt: t.last || null, fullAt: t.full || null,
+    next: AUTO ? { mode: n.mode, inMinutes: Math.max(0, Math.ceil((n.at - Date.now()) / 60000)) } : null,
+    waitMinutes: Math.max(0, Math.ceil((t.last + BUTTON_GAP - Date.now()) / 60000)) };
 }
-function startScan() {
+// Pulsante: giro veloce, se l'ultimo giro ha almeno 2 minuti (senza espansioni calde: completo).
+function startScan(mode) {
   if (scanJob.running) return { ok: false, error: "Una scansione è già in corso." };
-  const wait = scanStatus().waitMinutes;
-  if (wait > 0) return { ok: false, error: `L'ultima scansione è troppo recente: riprova tra ${wait} minuti. Scansioni ravvicinate fanno bloccare l'accesso a CardTrader.` };
-  Object.assign(scanJob, { running: true, done: 0, total: 0, found: 0, error: null });
-  const p = spawn(process.execPath, [path.join(__dirname, "scanner.js")], { cwd: __dirname });
+  const t = oppTimes();
+  if (!mode) {
+    const wait = Math.ceil((t.last + BUTTON_GAP - Date.now()) / 60000);
+    if (wait > 0) return { ok: false, error: `Aggiornate meno di 2 minuti fa: riprova tra ${wait} ${wait === 1 ? "minuto" : "minuti"}.` };
+    mode = t.hasHot ? "veloce" : "completo";
+  }
+  Object.assign(scanJob, { running: true, mode, done: 0, total: 0, found: 0, fresh: 0, error: null });
+  const p = spawn(process.execPath, [path.join(__dirname, "scanner.js"), ...(mode === "veloce" ? ["--hot"] : [])], { cwd: __dirname });
+  let out = "";
+  p.stdout.on("data", d => { out += d; if (out.length > 1e5) out = out.slice(-2e4); });
   let err = "";
   p.stdout.on("data", d => {
     const m = [...String(d).matchAll(/(\d+)\/(\d+) espansioni · (\d+) occasioni/g)].pop();
@@ -812,11 +835,19 @@ function startScan() {
   p.stderr.on("data", d => { err += d; });
   p.on("close", code => {
     scanJob.running = false;
+    scanJob.fresh = +((out.match(/\((\d+) nuove\)/) || [])[1] || 0);
     scanJob.error = code === 0 ? null
       : ((err.match(/ERRORE:?\s*(.+)/) || err.match(/\w*Error:\s*(.+)/) || [])[1] || `la scansione si è fermata (codice ${code})`).trim();
+    if (scanJob.error) scanJob.errorAt = Date.now();
+    console.log(`[${new Date().toLocaleTimeString("it-IT")}] giro ${mode}: ${scanJob.error ? "ERRORE " + scanJob.error : `${scanJob.fresh} occasioni nuove`}`);
   });
   return { ok: true };
 }
+if (AUTO) setInterval(() => {
+  if (scanJob.running) return;
+  const n = nextAuto();
+  if (Date.now() >= n.at) startScan(n.mode);
+}, 30 * 1000).unref();
 
 // ---------- server ----------
 const send = (res, code, body, type = "application/json; charset=utf-8") => {

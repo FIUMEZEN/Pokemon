@@ -478,6 +478,8 @@ const LANG_NAME = { en: "Inglese", it: "Italiano", de: "Tedesco", fr: "Francese"
 const ago = ms => ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min fa` : ms < 1728e5 ? `${Math.round(ms / 36e5)} ore fa` : `${Math.round(ms / 864e5)} giorni fa`;
 // rendimento vendendo subito, sulla stessa base di costo dello scanner (prezzo + 1,50 € di spedizione)
 const fastRoi = o => o.profitFast / (o.buy + 1.5);
+// "nuova" = comparsa nell'ultima ora (la data la mette lo scanner la prima volta che la vede)
+const isNew = o => o.firstSeen && Date.now() - Date.parse(o.firstSeen) < 60 * 60 * 1000;
 
 async function viewDeals() {
   $("#view").innerHTML = '<div class="panel"><div class="msg">Carico le occasioni…</div></div>';
@@ -486,21 +488,24 @@ async function viewDeals() {
   catch (e) { return $("#view").innerHTML = `<div class="panel msg err">Errore: ${esc(e.message)}</div>`; }
   lastScan = st;
   renderDeals(st);
-  if (st.running) pollScan();
+  pollScan();
 }
 
-// Riquadro in alto: quando e' stata fatta la scansione, pulsante per rifarla, avanzamento.
+// Riquadro in alto: ultimo aggiornamento, prossimo giro automatico, pulsante, avanzamento.
 function scanBox(st) {
   const d = dealsData;
   const when = d?.generatedAt ? `Aggiornate ${ago(Date.now() - Date.parse(d.generatedAt))}` : "Nessuna scansione ancora fatta";
-  const btn = st.running ? `<button class="b" disabled>Scansione in corso…</button>`
-    : st.waitMinutes > 0 ? `<button class="b" disabled title="Scansioni ravvicinate fanno bloccare l'accesso a CardTrader">Di nuovo tra ${st.waitMinutes} min</button>`
-    : `<button class="b p" onclick="startScan()">🔄 Aggiorna occasioni</button>`;
+  const next = st.running ? "" : st.next
+    ? ` · prossimo giro ${st.next.mode} ${st.next.inMinutes ? "tra " + st.next.inMinutes + " min" : "a momenti"}`
+    : " · aggiornamento automatico spento";
+  const btn = st.running ? `<button class="b" disabled>Aggiornamento…</button>`
+    : st.waitMinutes > 0 ? `<button class="b" disabled>Aggiornate ora</button>`
+    : `<button class="b p" onclick="startScan()">🔄 Aggiorna ora</button>`;
   return `<div class="row" style="align-items:center;justify-content:space-between">
-      <div><b style="font-size:16px">Occasioni su CardTrader</b><div class="small muted">${when}</div></div>${btn}</div>
+      <div><b style="font-size:16px">Occasioni su CardTrader</b><div class="small muted">${when}${next}</div></div>${btn}</div>
     ${st.running ? `<div class="prog"><div style="width:${st.total ? Math.round(st.done / st.total * 100) : 2}%"></div></div>
-      <div class="small muted">Controllo ${st.done} di ${st.total || "…"} espansioni · ${st.found} occasioni finora. Ci vogliono alcuni minuti: intanto puoi usare le altre sezioni.</div>` : ""}
-    ${st.error ? `<div class="small bad" style="margin-top:8px">⛔ L'ultima scansione non è riuscita: ${esc(st.error)}</div>` : ""}`;
+      <div class="small muted">Giro ${esc(st.mode || "")}: controllo ${st.done} di ${st.total || "…"} espansioni. ${st.mode === "completo" ? "Ci vogliono un paio di minuti: intanto puoi usare le altre sezioni." : ""}</div>` : ""}
+    ${st.error ? `<div class="small bad" style="margin-top:8px">⛔ L'ultimo giro non è riuscito: ${esc(st.error)}. I giri automatici riprendono tra 15 minuti.</div>` : ""}`;
 }
 
 function dealCard(o) {
@@ -508,7 +513,7 @@ function dealCard(o) {
   return `<div class="deal${risky ? " risky" : ""}">
     <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
       ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
-    <div><b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
+    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}<b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
     <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
     <div class="small muted">${LANG_NAME[o.lang] || esc(o.lang || "?")} · Near Mint · ${o.depth} offerte</div>
     <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b></div>
@@ -531,7 +536,8 @@ function renderDeals(st) {
   const p = dealPrefs;
   const all = d.opportunities || [];
   const pass = o => o.buy <= p.budget && o.profitFast >= p.minProfit;
-  const sorter = { fast: (a, b) => b.profitFast - a.profitFast, roi: (a, b) => fastRoi(b) - fastRoi(a), cheap: (a, b) => a.buy - b.buy }[p.sort];
+  const sorter = { fast: (a, b) => b.profitFast - a.profitFast, roi: (a, b) => fastRoi(b) - fastRoi(a), cheap: (a, b) => a.buy - b.buy,
+    recent: (a, b) => (Date.parse(b.firstSeen || 0) - Date.parse(a.firstSeen || 0)) || b.profitFast - a.profitFast }[p.sort] || ((a, b) => b.profitFast - a.profitFast);
   const solid = all.filter(o => !o.lonely && !o.suspect && pass(o)).sort(sorter);
   const risky = all.filter(o => (o.lonely || o.suspect) && pass(o)).sort(sorter);
   const shown = solid.slice(0, p.limit);
@@ -542,6 +548,7 @@ function renderDeals(st) {
     <div class="panel"><div id="scanbox">${scanBox(st)}</div>
       <div class="stats" style="margin-top:12px">
         <div><b>${solid.length}</b><span>Occasioni con questi filtri</span></div>
+        <div><b style="color:var(--acc)">${solid.filter(isNew).length}</b><span>Nuove nell'ultima ora</span></div>
         <div><b class="good">${eur(sum(solid, "profitFast"))}</b><span>Guadagno vendendo subito</span></div>
         <div><b>${eur(sum(solid, "buy"))}</b><span>Per comprarle tutte</span></div>
       </div>
@@ -552,7 +559,8 @@ function renderDeals(st) {
       <label>Ordina per<select onchange="dealPrefs.sort=this.value;saveDealPrefs();renderDeals(lastScan)">
         <option value="fast" ${p.sort === "fast" ? "selected" : ""}>Guadagno vendendo subito</option>
         <option value="roi" ${p.sort === "roi" ? "selected" : ""}>Rendimento %</option>
-        <option value="cheap" ${p.sort === "cheap" ? "selected" : ""}>Prezzo più basso</option></select></label>
+        <option value="cheap" ${p.sort === "cheap" ? "selected" : ""}>Prezzo più basso</option>
+        <option value="recent" ${p.sort === "recent" ? "selected" : ""}>Più recenti</option></select></label>
     </div>
     <div class="note">Il guadagno grande è quello <b>vendendo subito</b> (ti metti sotto la seconda offerta oggi), già al netto di commissioni CardTrader (5,3% + IVA) e 1,50 € di spedizione.
       «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.</div></div>
@@ -579,25 +587,30 @@ async function startScan() {
     pollScan();
   } catch (e) { alert("Errore: " + e.message); }
 }
+// Finche' la sezione Affari e' aperta controlla lo stato: ogni 3 secondi durante un giro,
+// ogni 20 altrimenti. Quando arriva un giro nuovo (anche automatico) ricarica le occasioni
+// tenendo la posizione di scorrimento.
 function pollScan() {
-  clearInterval(scanPoll);
+  clearTimeout(scanPoll);
   const tick = async () => {
+    if (tab !== "deals") return;
     let st;
-    try { st = await api("/api/scan"); } catch { return; }
-    const wasRunning = lastScan.running;
+    try { st = await api("/api/scan"); } catch { scanPoll = setTimeout(tick, 20000); return; }
     lastScan = st;
-    if (tab !== "deals") { if (!st.running) clearInterval(scanPoll); return; }
-    if (!st.running) {
-      clearInterval(scanPoll);
-      if (wasRunning) return viewDeals();                       // finita: carica i risultati nuovi
+    if (!st.running && st.lastScanAt && st.lastScanAt !== Date.parse(dealsData?.generatedAt || 0)) {
+      try {
+        dealsData = await api("/api/opportunities");
+        const y = window.scrollY;
+        renderDeals(st);
+        window.scrollTo(0, y);
+      } catch {}
+    } else {
+      const box = $("#scanbox");
+      if (box) box.innerHTML = scanBox(st);
     }
-    // durante la scansione si aggiorna solo il riquadro: ridisegnare tutto farebbe perdere
-    // lo scorrimento e i filtri che si stanno toccando
-    const box = $("#scanbox");
-    if (box) box.innerHTML = scanBox(st);
+    scanPoll = setTimeout(tick, st.running ? 3000 : 20000);
   };
   tick();
-  scanPoll = setInterval(tick, 3000);
 }
 function go(t) { tab = t; render(); }
 

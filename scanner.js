@@ -176,10 +176,25 @@ function analyse(exp, blueprints, products, cm) {
   const cm = new Map(guideRaw.priceGuides.map(g => [g.idProduct, g]));
   console.log(`Listino Cardmarket del ${guideRaw.createdAt.slice(0, 10)} (${cm.size} prodotti) come riferimento prudenziale.`);
 
+  // Tre modi:
+  //  - completo (nessun argomento): tutte le espansioni che possono dare occasioni;
+  //  - veloce (--hot): solo le espansioni "calde", cioe' quelle che nell'ultimo giro completo
+  //    hanno dato almeno un'occasione (~80 su 856). Pochi secondi, si puo' ripetere spesso;
+  //  - a mano (codici): solo quelle indicate.
+  // I giri parziali aggiornano solo le proprie espansioni e tengono le altre dal file precedente.
+  const HOT = args.includes("--hot");
+  const prev = loadJson(OUT, null);
   const all = (await get("/expansions")).filter(e => e.game_id === GAME_POKEMON);
-  const targets = codes.length ? all.filter(e => codes.includes(e.code)) : all;
-  if (!targets.length) { console.error("Nessuna espansione trovata per:", codes.join(", ")); process.exit(1); }
-  console.log(`Scansione di ${targets.length} espansioni. Spesa per carta ${CFG.minBuy}-${CFG.maxBuy} €.\n`);
+  // Senza nessun collegamento a Cardmarket un'occasione non puo' uscire: si salta (70 espansioni,
+  // quasi tutte asiatiche). Solo se i blueprint sono gia' in cache, altrimenti non lo sappiamo.
+  const possible = e => !bpCache[e.id] || bpCache[e.id].some(b => (b.card_market_ids || []).length);
+  const hotCodes = new Set(prev?.hot || (prev?.opportunities || []).map(o => o.code));
+  const targets = codes.length ? all.filter(e => codes.includes(e.code))
+    : HOT ? all.filter(e => hotCodes.has(e.code))
+    : all.filter(possible);
+  const partial = codes.length > 0 || HOT;
+  if (!targets.length) { console.error(HOT ? "ERRORE: nessuna espansione calda: serve prima un giro completo." : "Nessuna espansione trovata per: " + codes.join(", ")); process.exit(1); }
+  console.log(`${HOT ? "Giro veloce" : partial ? "Giro parziale" : "Giro completo"}: ${targets.length} espansioni. Spesa per carta ${CFG.minBuy}-${CFG.maxBuy} €.\n`);
 
   const found = [];
   const t0 = Date.now();
@@ -204,6 +219,23 @@ function analyse(exp, blueprints, products, cm) {
     console.error(`\n\nERRORE: ${failed} espansioni su ${targets.length} non lette (CardTrader ci sta bloccando?). Tengo la scansione precedente: riprova tra qualche minuto.`);
     process.exit(2);
   }
+  // Da quando e' in vendita ogni occasione: stessa carta, stesso venditore, stesso prezzo = stessa
+  // offerta, e tiene la data della prima volta che e' stata vista. Serve all'etichetta "NUOVA".
+  const now = new Date().toISOString();
+  const OLD = "2000-01-01T00:00:00.000Z";                // "gia' presente prima che si tenesse la data"
+  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+  const seen = new Map((prev?.opportunities || []).map(o => [keyOf(o), o.firstSeen || prev.generatedAt]));
+  for (const f of found) f.firstSeen = seen.get(keyOf(f)) || now;
+  let fresh = found.filter(f => f.firstSeen === now).length;
+  // Il primissimo giro con questa funzione non ha date precedenti: non si marca tutto come nuovo.
+  // La data vera e' sconosciuta: si usa una data vecchia convenzionale, cosi' non risultano "nuove".
+  if (prev && !prev.opportunities?.some(o => o.firstSeen)) { for (const f of found) f.firstSeen = OLD; fresh = 0; }
+
+  // Giro parziale: le espansioni non controllate restano come erano.
+  if (partial && prev?.opportunities) {
+    const done = new Set(targets.map(e => e.code));
+    found.push(...prev.opportunities.filter(o => !done.has(o.code)));
+  }
   // prima le occasioni che reggono anche vendendo subito
   found.sort((a, b) => b.profitFast - a.profitFast);
 
@@ -220,13 +252,17 @@ function analyse(exp, blueprints, products, cm) {
     .sort((a, b) => b.profit - a.profit);
 
   fs.writeFileSync(OUT, JSON.stringify({
-    generatedAt: new Date().toISOString(),
+    generatedAt: now,
+    // ultimo giro completo: le espansioni calde si ricalcolano solo li'
+    fullAt: partial ? prev?.fullAt || prev?.generatedAt || now : now,
+    hot: partial ? [...hotCodes, ...found.map(f => f.code)].filter((c, i, a) => a.indexOf(c) === i) : [...new Set(found.map(f => f.code))],
+    mode: HOT ? "veloce" : partial ? "parziale" : "completo",
     priceGuideDate: guideRaw.createdAt,
-    config: CFG, expansionsScanned: targets.length,
+    config: CFG, expansionsScanned: partial ? prev?.expansionsScanned ?? targets.length : targets.length,
     opportunities: found, bundles,
   }, null, 1));
 
-  console.log(`\n\nTrovate ${found.length} occasioni. Salvate in opportunities.json\n`);
+  console.log(`\n\nTrovate ${found.length} occasioni (${fresh} nuove). Salvate in opportunities.json\n`);
   console.log("Le migliori 20:");
   for (const f of found.slice(0, 20)) {
     console.log(`  compri ${f.buy.toFixed(2).padStart(7)} → +${f.profit.toFixed(2).padStart(6)} € con calma (${(f.roi * 100).toFixed(0)}%) / +${f.profitFast.toFixed(2).padStart(6)} € subito  ${(f.name + (f.reverse ? " [rev]" : "")).slice(0, 30).padEnd(30)} ${f.code.padEnd(7)} ${f.lang ?? "?"} x${f.qty}${f.suspect ? "  [DA VERIFICARE]" : ""}`);
