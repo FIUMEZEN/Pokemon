@@ -8,4 +8,5 @@ data.json
 cache-*.json
 catalog.json
 opportunities.json
+deals-log.json
 *.tmp

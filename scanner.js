@@ -6,7 +6,8 @@
 //   node scanner.js ssp evs bs solo queste espansioni (codici)
 //   node scanner.js --max 60   limite di spesa per carta, in euro
 //
-// Scrive opportunities.json, che l'app legge nella tab "Affari".
+// Scrive opportunities.json, che l'app legge nella tab "Affari", e deals-log.json (diario:
+// quanto resta in vendita ogni occasione, per misurare se i segnali sono veri senza comprare).
 // NON compra niente: fa solo letture.
 const fs = require("fs");
 const path = require("path");
@@ -15,6 +16,7 @@ const API = "https://api.cardtrader.com/api/v2";
 const GAME_POKEMON = 5;
 const TOKEN = fs.readFileSync(path.join(__dirname, "cardtrader-token.txt"), "utf8").trim();
 const OUT = path.join(__dirname, "opportunities.json");
+const LOG_FILE = path.join(__dirname, "deals-log.json");
 const GUIDE_FILE = path.join(__dirname, "cache-priceguide.json");
 
 // --- regole di selezione -------------------------------------------------
@@ -22,7 +24,7 @@ const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? Number(args[i + 1]) : def; };
 const CFG = {
   minBuy: opt("--min", 3),        // sotto questa cifra la spedizione si mangia tutto
-  maxBuy: opt("--max", 80),       // tetto per singola carta
+  maxBuy: opt("--max", 1000),     // tetto per singola carta: il budget dell'utente arriva a 1000 € (era 80 fino al 22/09/2026)
   minDepth: 5,                    // servono almeno 5 offerte NM: sotto non c'e' un mercato
   minGap: 0.25,                   // l'annuncio deve stare almeno il 25% sotto il mercato
   minProfit: 3,                   // guadagno netto minimo in euro
@@ -162,6 +164,7 @@ function analyse(exp, blueprints, products, cm) {
         lonely: best.v < g[1].v * 0.5,
         note: best.note || null,
         seller: best.seller, country: best.country,
+        productId: best.id,                        // id dell'annuncio: serve al diario per capire se e' sparito
         url: `https://www.cardtrader.com/cards/${b.id}`,
         image: b.img || null,
       });
@@ -198,11 +201,28 @@ function analyse(exp, blueprints, products, cm) {
 
   const found = [];
   const t0 = Date.now();
+  // Diario: si chiudono solo le voci di espansioni lette davvero in questo giro. Un'espansione
+  // fallita farebbe sembrare "sparite" tutte le sue occasioni.
+  const log = loadJson(LOG_FILE, { entries: {} });
+  const openCodes = new Set(Object.values(log.entries).filter(e => !e.end).map(e => e.code));
+  const okCodes = new Set();
+  const listings = new Map();   // code -> { ids: Map(id annuncio -> {price, qty}), full: Map(blueprint -> prezzo della 25a offerta) }
   await pool(targets, 3, async exp => {
     const bps = await blueprints(exp.id);
     const prods = await get(`/marketplace/products?expansion_id=${exp.id}`);
     if (!prods || Array.isArray(prods)) return;
     found.push(...analyse(exp, bps || [], prods, cm));
+    okCodes.add(exp.code);
+    if (openCodes.has(exp.code)) {
+      const ids = new Map(), full = new Map();
+      for (const [bid, list] of Object.entries(prods)) {
+        for (const p of list) ids.set(p.id, { price: p.price_cents / 100, qty: p.quantity });
+        // l'API da' al massimo 25 offerte per carta: se la lista e' piena, un annuncio puo' uscirne
+        // senza essere venduto (spinto fuori da offerte piu' economiche di altre condizioni)
+        if (list.length >= 25) full.set(+bid, Math.max(...list.map(p => p.price_cents / 100)));
+      }
+      listings.set(exp.code, { ids, full });
+    }
     await sleep(150);                              // ritmo blando: meglio lenti che bloccati
   }, (d, t) => {
     if (d % 50 === 0) saveBlueprints();
@@ -230,6 +250,8 @@ function analyse(exp, blueprints, products, cm) {
   // Il primissimo giro con questa funzione non ha date precedenti: non si marca tutto come nuovo.
   // La data vera e' sconosciuta: si usa una data vecchia convenzionale, cosi' non risultano "nuove".
   if (prev && !prev.opportunities?.some(o => o.firstSeen)) { for (const f of found) f.firstSeen = OLD; fresh = 0; }
+
+  updateLog(log, found, okCodes, listings, now, HOT ? "veloce" : partial ? "parziale" : "completo");
 
   // Giro parziale: le espansioni non controllate restano come erano.
   if (partial && prev?.opportunities) {
@@ -273,3 +295,66 @@ function analyse(exp, blueprints, products, cm) {
   }
   console.log("\nATTENZIONE: ogni occasione va verificata a mano prima di comprare (condizione reale, foto, affidabilita' del venditore, autenticita').");
 })().catch(e => { console.error("\nERRORE:", e.message); process.exit(1); });
+
+// --- diario delle occasioni ----------------------------------------------
+// Misura, senza comprare, se le occasioni sono vere: un annuncio sotto prezzo che sparisce in
+// poche ore l'ha comprato qualcuno; uno che resta giorni non era un affare. Una voce per offerta
+// (stessa chiave dell'etichetta NUOVA). Chiusure possibili:
+//  - "sparita": l'annuncio non c'e' piu' (venduto o ritirato: dall'API non si distingue);
+//  - "fuori dai 25": non c'e' piu', ma la lista di quella carta era piena e il suo prezzo stava
+//    oltre l'ultima offerta mostrata: potrebbe essere ancora in vendita. Non conta come venduta;
+//  - "prezzo cambiato": stesso annuncio, altro prezzo;
+//  - "non piu' occasione": stesso annuncio e prezzo, ma i filtri non lo passano piu' (mercato o
+//    listino Cardmarket cambiati: il giorno del nuovo listino ne chiude molte insieme).
+// L'istante vero di chiusura sta tra end.lastSeen ed end.at: le espansioni calde si controllano
+// ogni 5 minuti, le altre ogni ora. Le copie vendute di un annuncio con piu' copie vanno in qtyDrops.
+function updateLog(log, found, okCodes, listings, now, mode) {
+  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+  const E = log.entries;
+  const here = new Set();
+  let opened = 0, closed = 0;
+  for (const f of found) {
+    const k = keyOf(f);
+    here.add(k);
+    const e = E[k];
+    if (!e) {
+      E[k] = {
+        key: k, productId: f.productId ?? null, name: f.name, version: f.version, expansion: f.expansion, code: f.code,
+        reverse: f.reverse, lang: f.lang, seller: f.seller, url: f.url,
+        buy: f.buy, sellFast: f.sellFast, profitFast: f.profitFast, cmRef: f.cmTrend, depth: f.depth,
+        lonely: f.lonely, suspect: f.suspect, qty: f.qty,
+        firstSeen: f.firstSeen, lastSeen: now, mode, end: null, reopened: 0, qtyDrops: [],
+      };
+      opened++;
+      continue;
+    }
+    if (e.end) { e.end = null; e.reopened++; }
+    if (f.qty < e.qty) e.qtyDrops.push({ at: now, from: e.qty, to: f.qty });
+    e.qty = f.qty; e.lastSeen = now;
+    if (f.productId != null) e.productId = f.productId;       // rimesso in vendita con un id nuovo: si segue quello attuale
+  }
+  for (const e of Object.values(E)) {
+    if (e.end || here.has(e.key) || !okCodes.has(e.code)) continue;
+    const L = listings.get(e.code);
+    if (!L) continue;
+    const bid = +String(e.url).split("/").pop();
+    const still = e.productId != null ? L.ids.get(e.productId) : null;
+    let why;
+    if (still) why = still.price !== e.buy ? "prezzo cambiato" : "non piu' occasione";
+    else if (e.productId == null) why = "non piu' occasione";      // voce senza id: non si sa se e' sparita
+    // prudente di proposito: nel dubbio non si conta come venduta (il diario sottostima, non gonfia)
+    else if (L.full.has(bid) && L.full.get(bid) <= e.buy) why = "fuori dai 25";
+    else why = "sparita";
+    if (still && still.qty < e.qty) e.qtyDrops.push({ at: now, from: e.qty, to: still.qty });
+    if (still) e.qty = still.qty;
+    e.end = { at: now, lastSeen: e.lastSeen, why, ...(still && still.price !== e.buy ? { newPrice: still.price } : {}) };
+    closed++;
+  }
+  // si tengono 60 giorni di voci chiuse
+  const limit = Date.parse(now) - 60 * 86400000;
+  for (const [k, e] of Object.entries(E)) if (e.end && Date.parse(e.end.at) < limit) delete E[k];
+  log.updatedAt = now;
+  fs.writeFileSync(LOG_FILE + ".tmp", JSON.stringify(log));
+  fs.renameSync(LOG_FILE + ".tmp", LOG_FILE);
+  console.log(`\nDiario: ${opened} occasioni nuove, ${closed} chiuse, ${Object.values(E).filter(e => !e.end).length} aperte.`);
+}

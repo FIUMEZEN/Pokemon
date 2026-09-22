@@ -477,8 +477,15 @@ function appraiseHtml(d) {
 
 // --- Affari: occasioni trovate dallo scanner su CardTrader ---
 let dealsData = null, scanPoll = null;
-const DEAL_DEFAULTS = { budget: 80, minProfit: 1, sort: "fast", limit: 48 };
-const dealPrefs = (() => { try { return { ...DEAL_DEFAULTS, ...JSON.parse(localStorage.getItem("deals") || "{}") }; } catch { return { ...DEAL_DEFAULTS }; } })();
+// budget uguale al tetto dello scanner (maxBuy), altrimenti la pagina nasconde cio' che lo scanner trova
+const DEAL_DEFAULTS = { budget: 1000, minProfit: 1, sort: "fast", limit: 48 };
+const dealPrefs = (() => {
+  try {
+    const p = { ...DEAL_DEFAULTS, ...JSON.parse(localStorage.getItem("deals") || "{}") };
+    if (p.budget === 80) p.budget = DEAL_DEFAULTS.budget;   // 80 era il vecchio default, non una scelta dell'utente
+    return p;
+  } catch { return { ...DEAL_DEFAULTS }; }
+})();
 const saveDealPrefs = () => { try { localStorage.setItem("deals", JSON.stringify(dealPrefs)); } catch {} };
 const LANG_NAME = { en: "Inglese", it: "Italiano", de: "Tedesco", fr: "Francese", es: "Spagnolo", pt: "Portoghese" };
 const ago = ms => ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min fa` : ms < 1728e5 ? `${Math.round(ms / 36e5)} ore fa` : `${Math.round(ms / 864e5)} giorni fa`;
