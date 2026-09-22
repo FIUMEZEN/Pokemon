@@ -49,7 +49,8 @@
   .dimg img { width:100%; height:100%; object-fit:contain; }
   .small { font-size:12px; }
   .dprof b { font-size:18px; }
-  a.dlink { display:block; text-align:center; text-decoration:none; margin-top:auto; padding:7px; border:1px solid var(--line); border-radius:7px; color:var(--acc); }
+  a.dlink, .deal .b { display:block; width:100%; text-align:center; text-decoration:none; margin-top:6px; padding:7px; border:1px solid var(--line); border-radius:7px; color:var(--acc); }
+  a.dlink { margin-top:auto; }
   .prog { height:8px; background:var(--line); border-radius:99px; overflow:hidden; margin:10px 0 4px; }
   .prog div { height:100%; background:var(--acc); transition:width .5s; }
   .thumbs { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
@@ -91,6 +92,8 @@ const fresh = c => {
   return `<span class="${a > 14 ? "bad" : "muted"}" title="Aggiornato ${esc(c.updated)}">${a}g fa${a > 14 ? " ⚠" : ""}</span>`;
 };
 const cls = n => n > 0 ? "good" : n < 0 ? "bad" : "muted";
+// numero scritto dall'utente: accetta la virgola decimale ("68,62"), altrimenti parseFloat darebbe 68
+const num = s => parseFloat(String(s ?? "").replace(",", "."));
 
 const PLATFORMS = {
   "Cardmarket":      { pct: 5,   fix: 0,    out: 1.5 },
@@ -508,12 +511,55 @@ function scanBox(st) {
     ${st.error ? `<div class="small bad" style="margin-top:8px">⛔ L'ultimo giro non è riuscito: ${esc(st.error)}. I giri automatici riprendono tra 15 minuti.</div>` : ""}`;
 }
 
+function dealKey(o) {
+  return `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+}
+function invCopies(key) {
+  return data.inventory.filter(it => it.key === key).length;
+}
+function blueprintId(url) {
+  const m = String(url || "").match(/\/cards\/(\d+)/);
+  return m ? +m[1] : null;
+}
+function shipGuess(seller) {
+  const today = new Date().toISOString().slice(0, 10);
+  const already = data.inventory.some(it => it.src === "ct" && it.ct?.seller === seller && it.date === today);
+  return already ? 0 : 1.5;
+}
+function buyDeal(key) {
+  const o = (dealsData?.opportunities || []).find(x => dealKey(x) === key);
+  if (!o) return alert("Questa occasione non c'è più nell'ultima scansione: ricarica la sezione Affari.");
+  const n = invCopies(key);
+  if (n && !confirm(`${o.name} è già in inventario${n > 1 ? " (" + n + " copie)" : ""}. Aggiungere un'altra copia?`)) return;
+  const price = num(prompt(`Prezzo pagato per ${o.name} (€, spedizione esclusa):`, o.buy));
+  if (isNaN(price)) return;
+  const ship = num(prompt("Spedizione pagata (€):", shipGuess(o.seller)));
+  if (isNaN(ship)) return;
+  data.inventory.push({
+    uid: Date.now(), src: "ct", date: new Date().toISOString().slice(0, 10),
+    buy: price, ship, sold: null, key,
+    ct: {
+      name: o.name, version: o.version || null, expansion: o.expansion,
+      reverse: !!o.reverse, lang: o.lang || null, seller: o.seller, country: o.country || null,
+      url: o.url, image: o.image || null, blueprintId: blueprintId(o.url),
+    },
+    est: {
+      at: dealsData.generatedAt, listed: o.buy, sell: o.sell, sellFast: o.sellFast,
+      profit: o.profit, profitFast: o.profitFast, cmTrend: o.cmTrend,
+      depth: o.depth, lonely: !!o.lonely, suspect: !!o.suspect,
+    },
+  });
+  save();
+  renderDeals(lastScan);
+}
 function dealCard(o) {
   const risky = o.lonely || o.suspect;
+  const key = dealKey(o);
+  const copies = invCopies(key);
   return `<div class="deal${risky ? " risky" : ""}">
     <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
       ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
-    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}<b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
+    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}<b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
     <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
     <div class="small muted">${LANG_NAME[o.lang] || esc(o.lang || "?")} · Near Mint · ${o.depth} offerte</div>
     <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b></div>
@@ -524,6 +570,7 @@ function dealCard(o) {
     ${o.note ? `<div class="small muted">«${esc(o.note)}»</div>` : ""}
     <div class="small muted">${esc(o.seller || "?")}${o.country ? " · " + esc(o.country) : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}</div>
     <a class="dlink" href="${esc(o.url)}" target="_blank" rel="noopener">Apri su CardTrader</a>
+    <button class="b" data-key="${esc(key)}" onclick="buyDeal(this.dataset.key)">${copies ? "Aggiungi copia" : "Segna come comprata"}</button>
   </div>`;
 }
 
@@ -617,6 +664,23 @@ function go(t) { tab = t; render(); }
 function cardCell(c) {
   return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}<small>${esc(c.set)} · #${esc(c.number)} · ${esc(c.rarity || "")}</small></div></div>`;
 }
+const CT_FEE = 5.3 * 1.22;   // commissione venditore CardTrader, come feePct in scanner.js
+function isCt(it) { return it.src === "ct"; }
+function invName(it) { return isCt(it) ? it.ct.name : it.card.name; }
+function invRef(it) { return isCt(it) ? it.est?.sellFast : sellPrice(it.card); }
+function stimaDel(at) {
+  const d = new Date(at);
+  if (!at || isNaN(d)) return "";
+  return "stima del " + d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+}
+function invCell(it) {
+  if (!isCt(it)) return cardCell(it.card);
+  const c = it.ct;
+  const bits = [c.expansion, c.version].filter(Boolean).join(" · ");
+  return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}${c.reverse ? ' <span class="tag">reverse</span>' : ""}
+    <small>${esc(bits)}<br>${esc(c.seller || "?")}${c.country ? " · " + esc(c.country) : ""}
+    · <a href="${esc(c.url)}" target="_blank" rel="noopener">CardTrader</a></small></div></div>`;
+}
 
 // --- Cerca ---
 function viewSearch() {
@@ -702,14 +766,14 @@ async function refreshWatch() {
 // --- Inventario ---
 function addInv(id) {
   const c = cardCache[id];
-  const price = parseFloat(prompt(`Prezzo pagato per ${c.name} (€, spedizione esclusa):`, buyPrice(c) ?? ""));
+  const price = num(prompt(`Prezzo pagato per ${c.name} (€, spedizione esclusa):`, buyPrice(c) ?? ""));
   if (isNaN(price)) return;
   data.inventory.push({ uid: Date.now(), card: c, buy: price, ship: settings.inn, date: new Date().toISOString().slice(0, 10), sold: null });
   save(); go("inv");
 }
 function sell(i) {
   const it = data.inventory[i];
-  const price = parseFloat(prompt(`Prezzo di vendita di ${it.card.name} (€):`, it.card.cm.trend ?? ""));
+  const price = num(prompt(`Prezzo di vendita di ${invName(it)} (€):`, invRef(it) ?? ""));
   if (isNaN(price)) return;
   it.sold = { price, pct: settings.pct, fix: settings.fix, out: settings.out };
   save(); viewInv();
@@ -717,28 +781,32 @@ function sell(i) {
 function viewInv() {
   let invested = 0, value = 0, realized = 0;
   const rows = data.inventory.map((it, i) => {
-    const c = it.card, cost = it.buy + it.ship;
+    const cost = it.buy + it.ship;
+    const ref = invRef(it);
     let status;
     if (it.sold) {
       const s = it.sold, p = s.price * (1 - s.pct / 100) - s.fix - s.out - cost;
       realized += p;
       status = `Venduta a ${eur(s.price)} → <b class="${cls(p)}">${eur(p)}</b>`;
     } else {
-      invested += cost; value += sellPrice(c) ?? 0;
-      const n = net(it.buy, sellPrice(c), { ...settings, inn: it.ship });
-      status = `Vale ~${eur(sellPrice(c))} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
+      invested += cost; value += ref ?? 0;
+      // le carte da Affari si valutano come le valutava lo scanner: vendita su CardTrader (5,3% + IVA)
+      const n = net(it.buy, ref, isCt(it) ? { pct: CT_FEE, fix: 0, out: 0, inn: it.ship } : { ...settings, inn: it.ship });
+      const snap = isCt(it) && it.est?.at ? ` <span class="muted">(${esc(stimaDel(it.est.at))})</span>` : "";
+      status = `Vale ~${eur(ref)}${snap} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
         <button class="b" onclick="sell(${i})">Venduta</button>`;
     }
-    return `<tr><td>${cardCell(c)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
+    return `<tr><td>${invCell(it)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
       <td><button class="b" onclick="if(confirm('Eliminare?')){data.inventory.splice(${i},1);save();viewInv()}">✕</button></td></tr>`;
   }).join("");
+  const hasCt = data.inventory.some(isCt);
   $("#view").innerHTML = `<div class="panel"><div class="stats">
       <div><b>${eur(invested)}</b><span>Capitale in carte</span></div>
-      <div><b>${eur(value)}</b><span>Valore al trend (lordo)</span></div>
+      <div><b>${eur(value)}</b><span>${hasCt ? "Valore (lordo / stima)" : "Valore al trend (lordo)"}</span></div>
       <div><b class="${cls(realized)}">${eur(realized)}</b><span>Profitto realizzato</span></div></div></div>
     <div class="panel scroll">${data.inventory.length ? `<table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">Per aggiornare i prezzi delle carte in inventario, aggiungile alla watchlist e premi «Aggiorna prezzi», oppure ricercale di nuovo.</div>`
-      : '<div class="msg">Nessuna carta. Usa «+ Compro» nei risultati di ricerca.</div>'}</div>`;
+    <div class="note">${hasCt ? "Le carte da Affari tengono la stima di quando le hai segnate (vendita immediata su CardTrader). Non si aggiorna da sola: serve a confrontarla col prezzo a cui venderai davvero. " : ""}Per aggiornare i prezzi delle carte da Cerca, aggiungile alla watchlist e premi «Aggiorna prezzi», oppure ricercale di nuovo.</div>`
+      : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
 }
 
 // --- Calcolatore ---

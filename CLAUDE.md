@@ -10,7 +10,7 @@ App web locale (in italiano) per la compravendita di carte Pokémon: cerca una c
 
 ## File
 - `server.js`: server HTTP + accesso alle fonti dati.
-- `index.html`: tutta l'interfaccia (HTML, CSS e JS in un file). Tab: Cerca, Watchlist, Inventario, Calcolatore.
+- `index.html`: tutta l'interfaccia (HTML, CSS e JS in un file). Tab: Perito, Affari, Cerca, Watchlist, Inventario, Calcolatore.
 - `data.json`: watchlist e inventario dell'utente (creato dall'app). **Non cancellarlo né riempirlo con dati di prova**: se si fanno test, rimetterlo a `{"watchlist":[],"inventory":[]}`.
 - `cache-priceguide.json` (listino Cardmarket, ~15 MB) e `cache-cards.json` (anagrafica carte): cache su disco, rigenerabili.
 
@@ -25,6 +25,8 @@ App web locale (in italiano) per la compravendita di carte Pokémon: cerca una c
 - **Cerca**: prezzi freschi a ogni ricerca (colonna «Dati» = giorni dall'ultimo aggiornamento, ⚠ oltre 14).
 - **Watchlist**: si aggiorna solo con il pulsante «Aggiorna prezzi».
 - **Inventario**: **non si aggiorna da solo**. Salva la carta com'era al momento dell'aggiunta, quindi «Valore al trend» può essere vecchio. Difetto noto, da sistemare.
+- **Inventario da Affari.** Le voci da CardTrader hanno `src: "ct"`, `ct` (dati dell'annuncio, `blueprintId`) e `est` (stima al momento dell'acquisto, da **non aggiornare mai**: è il dato per validare i segnali prima della Fase 3). `key` = stessa chiave di `keyOf` in `scanner.js` (`url|seller|buy|reverse`). Si registra **dopo** aver pagato, con il prezzo reale; «Apri su CardTrader» resta un link a parte. Le carte già in inventario si **marcano** (etichetta IN INVENTARIO), non si nascondono; una seconda copia chiede conferma. Le voci da Cerca non hanno `src` e restano come prima.
+- **Tetto dello scanner.** `maxBuy` è 80 €, sotto la fascia di budget dell'utente (200-1000 €). Al 22/09/2026: 207 occasioni, nessuna sopra i 100 €, mediana `profitFast` 2,07 € sulle non sospette. Alzarlo cambia `opportunities.json` e i casi da controllare a mano: non farlo senza che lo chieda Fabio.
 
 ## Come si calcola il guadagno (funzione `net` in index.html)
 ```
