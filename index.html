@@ -489,8 +489,11 @@ const dealPrefs = (() => {
 const saveDealPrefs = () => { try { localStorage.setItem("deals", JSON.stringify(dealPrefs)); } catch {} };
 const LANG_NAME = { en: "Inglese", it: "Italiano", de: "Tedesco", fr: "Francese", es: "Spagnolo", pt: "Portoghese" };
 const ago = ms => ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min fa` : ms < 1728e5 ? `${Math.round(ms / 36e5)} ore fa` : `${Math.round(ms / 864e5)} giorni fa`;
-// rendimento vendendo subito, sulla stessa base di costo dello scanner (prezzo + 1,50 € di spedizione)
-const fastRoi = o => o.profitFast / (o.buy + 1.5);
+// spedizione d'acquisto calcolata dallo scanner coi metodi del venditore; 1,50 € solo per le
+// occasioni vecchie, precedenti al calcolo vero
+const shipOf = o => o.ship ?? 1.5;
+// rendimento vendendo subito, sulla stessa base di costo dello scanner (prezzo + spedizione)
+const fastRoi = o => o.profitFast / (o.buy + shipOf(o));
 // "nuova" = comparsa nell'ultima ora (la data la mette lo scanner la prima volta che la vede)
 const isNew = o => o.firstSeen && Date.now() - Date.parse(o.firstSeen) < 60 * 60 * 1000;
 
@@ -531,10 +534,12 @@ function blueprintId(url) {
   const m = String(url || "").match(/\/cards\/(\d+)/);
   return m ? +m[1] : null;
 }
-function shipGuess(seller) {
+// proposta per la domanda "spedizione pagata": 0 se oggi hai gia' comprato dallo stesso venditore,
+// altrimenti quella calcolata dallo scanner. Il dato giusto resta quello della cassa.
+function shipGuess(o) {
   const today = new Date().toISOString().slice(0, 10);
-  const already = data.inventory.some(it => it.src === "ct" && it.ct?.seller === seller && it.date === today);
-  return already ? 0 : 1.5;
+  const already = data.inventory.some(it => it.src === "ct" && it.ct?.seller === o.seller && it.date === today);
+  return already ? 0 : shipOf(o);
 }
 function buyDeal(key) {
   const o = (dealsData?.opportunities || []).find(x => dealKey(x) === key);
@@ -543,7 +548,7 @@ function buyDeal(key) {
   if (n && !confirm(`${o.name} è già in inventario${n > 1 ? " (" + n + " copie)" : ""}. Aggiungere un'altra copia?`)) return;
   const price = num(prompt(`Prezzo pagato per ${o.name} (€, spedizione esclusa):`, o.buy));
   if (isNaN(price)) return;
-  const ship = num(prompt("Spedizione pagata (€):", shipGuess(o.seller)));
+  const ship = num(prompt("Spedizione pagata (€):", shipGuess(o)));
   if (isNaN(ship)) return;
   data.inventory.push({
     uid: Date.now(), src: "ct", date: new Date().toISOString().slice(0, 10),
@@ -572,7 +577,9 @@ function dealCard(o) {
     <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}<b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
     <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
     <div class="small muted">${LANG_NAME[o.lang] || esc(o.lang || "?")} · Near Mint · ${o.depth} offerte</div>
-    <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b></div>
+    <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b> <span class="small muted">+ ${eur(shipOf(o))} sped.</span></div>
+    ${o.shipUnknown ? '<div class="small warn">⚠️ Spedizione non esposta dal venditore (CT Zero?): calcolati 7,90 €, controlla alla cassa</div>'
+      : o.shipMethod ? `<div class="small muted">${esc(o.shipMethod)}${o.shipTracked ? " · tracciata" : " · non tracciata"}</div>` : ""}
     <div class="dprof"><b class="${cls(o.profitFast)}">+${eur(o.profitFast)}</b> <span class="small muted">vendendo subito</span></div>
     <div class="small muted">+${eur(o.profit)} con calma (rivendi a ${eur(o.sell)})</div>
     ${o.lonely ? '<div class="small warn">⚠️ Prezzo isolato: molto sotto tutte le altre offerte della stessa carta</div>' : ""}
@@ -619,14 +626,14 @@ function renderDeals(st) {
         <option value="cheap" ${p.sort === "cheap" ? "selected" : ""}>Prezzo più basso</option>
         <option value="recent" ${p.sort === "recent" ? "selected" : ""}>Più recenti</option></select></label>
     </div>
-    <div class="note">Il guadagno grande è quello <b>vendendo subito</b> (ti metti sotto la seconda offerta oggi), già al netto di commissioni CardTrader (5,3% + IVA) e 1,50 € di spedizione.
+    <div class="note">Il guadagno grande è quello <b>vendendo subito</b> (ti metti sotto la seconda offerta oggi), già al netto di commissioni CardTrader (5,3% + IVA) e della spedizione vera del venditore (in Italia: 1,60 € non tracciata fino a 25 € di carrello, poi Raccomandata da 7,90 €). Solo venditori dell'Unione Europea.
       «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.</div></div>
     ${shown.length ? `<div class="grid">${shown.map(dealCard).join("")}</div>
       ${solid.length > shown.length ? `<div style="text-align:center;margin-bottom:14px"><button class="b" onclick="dealPrefs.limit+=48;renderDeals(lastScan)">Mostra altre (${solid.length - shown.length})</button></div>` : ""}`
       : '<div class="panel msg">Nessuna occasione con questi filtri. Prova ad alzare il budget o abbassare il guadagno minimo.</div>'}
     ${bundles.length ? `<div class="panel"><b>Stesso venditore: una sola spedizione</b>
-      <div class="note" style="margin-top:2px">Comprando più carte dallo stesso venditore la spedizione si paga una volta: il guadagno cresce.</div>
-      ${bundles.slice(0, 6).map(b => `<div style="margin-top:12px"><b>${esc(b.seller)}</b> · ${b.n} carte · spendi ${eur(b.cost)} ·
+      <div class="note" style="margin-top:2px">Comprando più carte dallo stesso venditore la spedizione si paga una volta. Attenzione: sopra i 25 € di carrello la spedizione economica non vale più, e il guadagno qui sotto ne tiene già conto.</div>
+      ${bundles.slice(0, 6).map(b => `<div style="margin-top:12px"><b>${esc(b.seller)}</b> · ${b.n} carte · spendi ${eur(b.cost)}${b.ship != null ? ` + ${eur(b.ship)} sped.` : ""} ·
         <b class="good">+${eur(b.profit)}</b> vendendo subito
         <div class="thumbs">${b.cards.map(c => `<a href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.name)} · ${eur(c.buy)}">${c.image ? `<img src="${esc(c.image)}" alt="${esc(c.name)}" loading="lazy">` : esc(c.name)}</a>`).join("")}</div></div>`).join("")}
     </div>` : ""}

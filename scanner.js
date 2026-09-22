@@ -31,7 +31,9 @@ const CFG = {
   minRoi: 0.20,                   // ROI netto minimo
   // costi (venditore UE iscritto dopo marzo 2026: 5,3% + IVA 22%)
   feePct: 5.3 * 1.22,
-  shipIn: 1.5,                    // spedizione pagata comprando
+  shipIn: 1.5,                    // spedizione provvisoria per la prima selezione: poi si usa quella vera del venditore
+  shipUnknown: 7.9,               // venditore senza metodi esposti (spedisce via CT Zero): Raccomandata IT, prudente
+  cardGrams: 20,                  // peso di una carta spedita (busta + protezione); +5 g per ogni carta in piu'
   shipOut: 0,                     // vendendo la spedizione la paga il compratore
 };
 const codes = args.filter(a => !a.startsWith("--") && !/^\d+(\.\d+)?$/.test(a));
@@ -239,6 +241,27 @@ function analyse(exp, blueprints, products, cm) {
     console.error(`\n\nERRORE: ${failed} espansioni su ${targets.length} non lette (CardTrader ci sta bloccando?). Tengo la scansione precedente: riprova tra qualche minuto.`);
     process.exit(2);
   }
+  // Spedizione vera: la selezione sopra usa 1,50 € provvisori (una spedizione piu' cara puo' solo
+  // abbassare il guadagno; si perdono solo i rari casi con spedizione sotto 1,50 o gratuita sopra
+  // una soglia: prudente di proposito). Ora ogni candidata si ricalcola con i metodi del suo venditore e
+  // passa di nuovo gli stessi scarti. Misurato il 22/09/2026: in Italia sopra i 25 € di carrello
+  // c'e' solo la Raccomandata (da 7,90 €), e la fascia 25-50 € perdeva quasi tutte le occasioni.
+  const ships = await shippingFor([...new Set(found.map(f => f.seller))]);
+  const kept = [];
+  for (const f of found) {
+    if (!EU.has(f.country)) continue;               // extra-UE: dazi e IVA all'import non calcolabili
+    const sh = shipCost(ships.get(f.seller), f.buy, 1);
+    const cost = f.buy + sh.cost;
+    const net = p => p * (1 - CFG.feePct / 100) - CFG.shipOut - cost;
+    const profit = net(f.sell), profitFast = net(f.sellFast), roi = profit / cost;
+    if (profitFast <= 0) continue;
+    if (profit < CFG.minProfit || roi < CFG.minRoi) continue;
+    Object.assign(f, { profit: +profit.toFixed(2), profitFast: +profitFast.toFixed(2), roi: +roi.toFixed(3), suspect: roi > 1.5,
+      ship: sh.cost, shipMethod: sh.name, shipTracked: sh.tracked, shipUnknown: sh.unknown });
+    kept.push(f);
+  }
+  found.length = 0; found.push(...kept);
+
   // Da quando e' in vendita ogni occasione: stessa carta, stesso venditore, stesso prezzo = stessa
   // offerta, e tiene la data della prima volta che e' stata vista. Serve all'etichetta "NUOVA".
   const now = new Date().toISOString();
@@ -263,14 +286,24 @@ function analyse(exp, blueprints, products, cm) {
 
   // Raggruppa per venditore: comprando piu' carte insieme la spedizione si paga una volta
   // sola. Solo occasioni solide, e guadagno calcolato vendendo subito.
+  // La spedizione unica si ricalcola sul carrello intero: sopra la soglia del metodo economico
+  // (in Italia 25 €) si passa alla Raccomandata, e il "risparmio" puo' diventare una perdita.
+  // Le occasioni ricopiate da un giro parziale senza "ship" restano fuori dai gruppi.
   const bySeller = {};
-  for (const f of found) if (!f.lonely && !f.suspect) (bySeller[f.seller] ??= []).push(f);
+  for (const f of found) if (!f.lonely && !f.suspect && f.ship != null) (bySeller[f.seller] ??= []).push(f);
+  // nei giri parziali i venditori delle occasioni ricopiate non sono in "ships": si rileggono dalla
+  // cache (nessuna richiesta, se l'ultimo giro completo li ha gia' letti)
+  const bundleShips = await shippingFor(Object.keys(bySeller).filter(u => bySeller[u].length > 1));
   const bundles = Object.entries(bySeller).filter(([, v]) => v.length > 1)
-    .map(([seller, v]) => ({
-      seller, n: v.length, cost: +v.reduce((s, x) => s + x.buy, 0).toFixed(2),
-      profit: +(v.reduce((s, x) => s + x.profitFast, 0) + (v.length - 1) * CFG.shipIn).toFixed(2),
-      cards: v.map(x => ({ name: x.name, image: x.image, buy: x.buy, url: x.url })),
-    }))
+    .map(([seller, v]) => {
+      const sub = v.reduce((s, x) => s + x.buy, 0);
+      const sh = shipCost(bundleShips.get(seller), sub, v.length);
+      // somma dei guadagni singoli, restituendo le spedizioni singole e pagandone una sola
+      const profit = v.reduce((s, x) => s + x.profitFast + x.ship, 0) - sh.cost;
+      return { seller, n: v.length, cost: +sub.toFixed(2), ship: sh.cost, shipMethod: sh.name, profit: +profit.toFixed(2),
+        cards: v.map(x => ({ name: x.name, image: x.image, buy: x.buy, url: x.url })) };
+    })
+    .filter(b => b.profit > 0)
     .sort((a, b) => b.profit - a.profit);
 
   fs.writeFileSync(OUT, JSON.stringify({
@@ -357,4 +390,54 @@ function updateLog(log, found, okCodes, listings, now, mode) {
   fs.writeFileSync(LOG_FILE + ".tmp", JSON.stringify(log));
   fs.renameSync(LOG_FILE + ".tmp", LOG_FILE);
   console.log(`\nDiario: ${opened} occasioni nuove, ${closed} chiuse, ${Object.values(E).filter(e => !e.end).length} aperte.`);
+}
+
+// --- spedizione ------------------------------------------------------------
+const EU = new Set(["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT",
+  "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"]);
+// Metodi di spedizione dei venditori: GET /shipping_methods?username=. Cache su disco 7 giorni,
+// una richiesta alla volta e col ritmo blando dello sweep. Un errore non ferma il giro: quel
+// venditore conta come "spedizione sconosciuta".
+const SHIP_FILE = path.join(__dirname, "cache-shipping.json");
+const SHIP_TTL = 7 * 86400000;
+async function shippingFor(sellers) {
+  const cache = loadJson(SHIP_FILE, {});
+  const out = new Map();
+  let fetched = 0, errors = 0;
+  for (const u of sellers) {
+    const c = cache[u];
+    if (c && Date.now() - c.at < SHIP_TTL) { out.set(u, c.methods); continue; }
+    try {
+      const m = await get(`/shipping_methods?username=${encodeURIComponent(u)}`, 2);
+      const methods = (Array.isArray(m) ? m : []).map(x => ({
+        name: x.name, tracked: !!x.tracked,
+        maxCart: x.max_cart_subtotal_price ? x.max_cart_subtotal_price.cents / 100 : null,
+        freeOver: x.free_shipping_threshold_price ? x.free_shipping_threshold_price.cents / 100 : null,
+        freeQty: x.free_shipping_threshold_quantity ?? null,
+        costs: (x.shipping_method_costs || []).filter(k => k.price?.currency === "EUR")
+          .map(k => ({ from: k.from_grams, to: k.to_grams, eur: k.price.cents / 100 })),
+      }));
+      cache[u] = { at: Date.now(), methods };
+      out.set(u, methods);
+      fetched++;
+    } catch { errors++; }
+    await sleep(200);
+  }
+  fs.writeFileSync(SHIP_FILE, JSON.stringify(cache));
+  if (fetched || errors) console.log(`\nSpedizioni: ${fetched} venditori letti${errors ? `, ${errors} non letti (spedizione sconosciuta)` : ""}.`);
+  return out;
+}
+// Metodo piu' economico per un carrello di "n" carte che vale "subtotal" euro.
+function shipCost(methods, subtotal, n) {
+  const grams = CFG.cardGrams + 5 * (n - 1);
+  let best = null;
+  for (const m of methods || []) {
+    if (m.maxCart != null && subtotal > m.maxCart) continue;
+    const free = (m.freeOver != null && subtotal >= m.freeOver) || (m.freeQty != null && n >= m.freeQty);
+    const band = m.costs.find(k => grams >= k.from && grams <= k.to) || (grams < (m.costs[0]?.from ?? 0) ? m.costs[0] : null);
+    if (!band && !free) continue;
+    const eur = free ? 0 : band.eur;
+    if (!best || eur < best.cost) best = { cost: eur, name: m.name, tracked: m.tracked, unknown: false };
+  }
+  return best || { cost: CFG.shipUnknown, name: null, tracked: null, unknown: true };
 }
