@@ -75,7 +75,7 @@
       <label>Spedizione vendita €<input type="number" id="shipOut" step="0.1" min="0"></label>
       <label>Spedizione acquisto €<input type="number" id="shipIn" step="0.1" min="0"></label>
     </div>
-    <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. Il margine dei risultati li usa tutti.</div>
+    <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. «Paga al massimo» in Cerca e Watchlist, l'inventario delle carte da Cerca e il calcolatore li usano tutti.</div>
   </section>
   <div id="view"></div>
 </main>
@@ -107,7 +107,7 @@ try { Object.assign(settings, JSON.parse(localStorage.getItem("settings") || "{}
 
 let data = { watchlist: [], inventory: [] };
 let tab = "search";
-let lastSearch = { cards: [], html: "" };
+let lastSearch = { cards: [], extra: "" };
 const cardCache = {}; // id -> card (per ricostruire watchlist/inventario)
 
 // ---------- calcoli ----------
@@ -118,8 +118,11 @@ function net(buy, sell, s = settings) {
   const proceeds = sell * (1 - s.pct / 100) - s.fix - s.out;
   return { profit: proceeds - cost, roi: (proceeds - cost) / cost };
 }
-const buyPrice = c => c.cm.lowEx ?? c.cm.low;           // miglior offerta in condizioni NM+
-const sellPrice = c => c.cm.trend;                       // trend Cardmarket come prezzo di rivendita
+// offerta piu' bassa del listino: QUALSIASI condizione e lingua (spread mediano 52% sul trend).
+// Non e' un prezzo d'acquisto: si mostra solo come informazione, mai per calcolare margini.
+const buyPrice = c => c.cm.low;
+// rivendita prudente: il piu' basso tra trend e media a 30 giorni, come scanner, perito e inventario
+const sellPrice = c => { const r = [c.cm.trend, c.cm.avg30].filter(x => x > 0); return r.length ? Math.min(...r) : null; };
 const momentum = c => c.cm.avg7 && c.cm.avg30 ? c.cm.avg7 / c.cm.avg30 - 1 : null;
 // Prezzo massimo d'acquisto per ottenere `roi` minimo rivendendo a `sell`
 function maxBuy(sell, roi = 0.2, s = settings) {
@@ -691,7 +694,7 @@ function viewSearch() {
       </form>
       <div class="note">Prezzi dal listino ufficiale Cardmarket (in €, rigenerato ogni giorno), anagrafica da TCGdex. Il primo avvio scarica il listino (~15 MB) e la prima ricerca di una carta può richiedere qualche secondo; poi è in cache.</div>
     </div>
-    <div class="panel scroll" id="results">${lastSearch.html || '<div class="msg">Cerca una carta per vedere prezzi e margine potenziale.</div>'}</div>`;
+    <div class="panel scroll" id="results">${lastSearch.q ? searchHtml() : '<div class="msg">Cerca una carta per vedere prezzi e quanto pagarla al massimo.</div>'}</div>`;
 }
 async function doSearch(e) {
   e.preventDefault();
@@ -701,23 +704,29 @@ async function doSearch(e) {
   try {
     const { cards, total, shown } = await api(`/api/search?q=${encodeURIComponent(q)}&set=${encodeURIComponent(set)}`);
     cards.forEach(c => cardCache[c.id] = c);
-    lastSearch = { q, set, cards };
-    lastSearch.html = resultsHtml(cards) + (total > shown ? `<div class="note warn">Trovate ${total} carte, mostrate le prime ${shown}: aggiungi l'espansione per restringere la ricerca.</div>` : "");
-    $("#results").innerHTML = lastSearch.html;
+    lastSearch = { q, set, cards, extra: total > shown ? `<div class="note warn">Trovate ${total} carte, mostrate le prime ${shown}: aggiungi l'espansione per restringere la ricerca.</div>` : "" };
+    $("#results").innerHTML = searchHtml();
   } catch (err) {
     $("#results").innerHTML = `<div class="msg err">Errore: ${esc(err.message)}</div>`;
   }
   $("#go").disabled = false;
 }
+// si ricalcola a ogni render (non si tiene l'HTML): «Paga al massimo» dipende dalle commissioni del riquadro in alto
+const searchHtml = () => resultsHtml(lastSearch.cards) + lastSearch.extra;
+// cella «Paga al massimo»: senza prezzo di riferimento e «non rende» sono due cose diverse
+function maxBuyCell(c) {
+  const s = sellPrice(c), mb = maxBuy(s);
+  return s == null ? '<span class="muted">senza prezzo</span>' : mb > 0 ? `<b>${eur(mb)}</b>` : '<span class="muted">non rende</span>';
+}
 function resultsHtml(cards) {
   if (!cards.length) return '<div class="msg">Nessun risultato.</div>';
   const rows = cards.map(c => {
-    const n = net(buyPrice(c), sellPrice(c)), m = momentum(c);
+    const m = momentum(c);
     return `<tr>
       <td>${cardCell(c)}</td>
       <td>${eur(buyPrice(c))}</td><td>${eur(c.cm.trend)}</td><td>${eur(c.cm.avg30)}</td>
       <td class="${cls(m)}">${pct(m)}</td>
-      <td class="${cls(n?.profit)}">${n ? eur(n.profit) + "<small class='muted'> " + pct(n.roi) + "</small>" : "–"}</td>
+      <td>${maxBuyCell(c)}</td>
       <td>${fresh(c)}</td>
       <td class="l">
         <button class="b" onclick="addWatch('${esc(c.id)}')">★</button>
@@ -725,31 +734,32 @@ function resultsHtml(cards) {
         ${c.cardmarketUrl ? `<a href="${esc(c.cardmarketUrl)}" target="_blank" rel="noopener">CM</a>` : ""}
       </td></tr>`;
   }).join("");
-  return `<table><thead><tr><th>Carta</th><th>Offerta min.</th><th>Trend</th><th>Media 30g</th><th>7g vs 30g</th><th>Margine netto</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">Margine = compri all'offerta più bassa, rivendi al prezzo trend Cardmarket, al netto di commissioni e spedizioni. L'offerta minima del listino vale per <b>qualsiasi condizione e lingua</b>: può essere una copia rovinata, quindi il margine è un limite superiore. Controlla su Cardmarket (link «CM») che esista un'offerta NM al prezzo indicato. Un margine alto con trend in calo (7g vs 30g) può essere una trappola.</div>`;
+  return `<table><thead><tr><th>Carta</th><th>Offerta min.<br><small class="muted">qualsiasi condizione</small></th><th>Trend</th><th>Media 30g</th><th>7g vs 30g</th><th>Paga al massimo</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note"><b>Paga al massimo</b> = il prezzo più alto a cui comprare (su Vinted, in fiera, da un privato) per guadagnare almeno il 20% netto rivendendo al più basso tra trend e media a 30 giorni, con le commissioni del riquadro in alto. «Non rende» = anche regalata, commissioni e spedizione si mangiano tutto.
+      L'offerta minima del listino vale per <b>qualsiasi condizione e lingua</b> (spesso una copia rovinata): non è un prezzo a cui si compra, per questo non se ne calcola il margine. Un trend in calo (7g vs 30g) abbassa il valore nei giorni successivi.</div>`;
 }
 
 // --- Watchlist ---
 function addWatch(id) {
   if (!data.watchlist.find(w => w.id === id)) {
     const c = cardCache[id];
-    data.watchlist.push({ id, target: Math.round((maxBuy(sellPrice(c)) ?? 0) * 100) / 100, card: c });
+    data.watchlist.push({ id, target: Math.max(0, Math.round((maxBuy(sellPrice(c)) ?? 0) * 100) / 100), card: c });
     save();
   }
   go("watch");
 }
 function viewWatch() {
   const rows = data.watchlist.map((w, i) => {
-    const c = w.card, b = buyPrice(c), hit = b != null && w.target > 0 && b <= w.target;
-    return `<tr><td>${cardCell(c)}</td><td>${eur(b)} ${hit ? '<span class="tag">Sotto target</span>' : ""}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td>
+    const c = w.card, b = buyPrice(c);
+    return `<tr><td>${cardCell(c)}</td><td>${eur(b)}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td><td>${maxBuyCell(c)}</td>
       <td><input type="number" step="0.1" min="0" value="${w.target}" onchange="data.watchlist[${i}].target=parseFloat(this.value)||0;save();viewWatch()"></td>
       <td><button class="b" onclick="data.watchlist.splice(${i},1);save();viewWatch()">✕</button></td></tr>`;
   }).join("");
   $("#view").innerHTML = `<div class="panel scroll">
     <div class="row" style="margin-bottom:10px"><button class="b p" id="ref" onclick="refreshWatch()">Aggiorna prezzi</button>
     <span class="muted" id="refmsg"></span></div>
-    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Offerta min.</th><th>Trend</th><th>Dati</th><th>Prezzo target €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">Il target proposto è il prezzo massimo che ti dà almeno +20% netto rivendendo al trend. Modificalo a piacere.</div>`
+    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Offerta min.<br><small class="muted">qualsiasi condizione</small></th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note"><b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. L'offerta minima del listino non è un segnale d'acquisto (qualsiasi condizione e lingua).</div>`
       : '<div class="msg">Nessuna carta. Usa ★ nei risultati di ricerca.</div>'}</div>`;
 }
 async function refreshWatch() {
@@ -764,7 +774,7 @@ async function refreshWatch() {
 // --- Inventario ---
 function addInv(id) {
   const c = cardCache[id];
-  const price = num(prompt(`Prezzo pagato per ${c.name} (€, spedizione esclusa):`, buyPrice(c) ?? ""));
+  const price = num(prompt(`Prezzo pagato per ${c.name} (€, spedizione esclusa):`, ""));   // niente low: inviterebbe a registrare un prezzo finto
   if (isNaN(price)) return;
   data.inventory.push({ uid: Date.now(), card: c, buy: price, ship: settings.inn, date: new Date().toISOString().slice(0, 10), sold: null });
   save(); go("inv");
@@ -838,7 +848,7 @@ function viewInv() {
       <button class="b p" ${invLoading ? "disabled" : ""} onclick="invTry=Date.now();refreshInv()">${invLoading ? "Aggiorno i prezzi…" : "Aggiorna prezzi"}</button>
       <span class="small ${invError ? "bad" : "muted"}">${invError ? "Prezzi non aggiornati: " + esc(invError) : "Si aggiornano da soli aprendo l'Inventario, se hanno più di un'ora."}</span></div>
     <table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">Carte da Cerca: trend Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
+    <div class="note">Carte da Cerca: il più basso tra trend e media a 30 giorni di Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
       : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
 }
 
