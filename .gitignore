@@ -1,0 +1,11 @@
+# Token CardTrader: permette di spendere dal tuo account. Mai su GitHub.
+cardtrader-token.txt
+
+# Dati personali: watchlist e inventario
+data.json
+
+# Cache e file generati: si riscaricano o si rigenerano da soli (~54 MB)
+cache-*.json
+catalog.json
+opportunities.json
+*.tmp
