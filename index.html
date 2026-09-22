@@ -667,12 +667,10 @@ function cardCell(c) {
 const CT_FEE = 5.3 * 1.22;   // commissione venditore CardTrader, come feePct in scanner.js
 function isCt(it) { return it.src === "ct"; }
 function invName(it) { return isCt(it) ? it.ct.name : it.card.name; }
-function invRef(it) { return isCt(it) ? it.est?.sellFast : sellPrice(it.card); }
-function stimaDel(at) {
-  const d = new Date(at);
-  if (!at || isNaN(d)) return "";
-  return "stima del " + d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
-}
+// carte da Affari: il prezzo vivo Cardmarket se c'e', altrimenti la stima fatta all'acquisto
+function invRef(it) { return isCt(it) ? it.live?.ref ?? it.est?.sellFast : sellPrice(it.card); }
+const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }); };
+function stimaDel(at) { return ddmm(at) ? "stima del " + ddmm(at) : ""; }
 function invCell(it) {
   if (!isCt(it)) return cardCell(it.card);
   const c = it.ct;
@@ -778,7 +776,35 @@ function sell(i) {
   it.sold = { price, pct: settings.pct, fix: settings.fix, out: settings.out };
   save(); viewInv();
 }
+// Prezzi vivi: all'apertura dell'Inventario, se sono piu' vecchi di un'ora, si chiedono al server
+// in un colpo solo. Il server usa il listino Cardmarket (e cache-blueprints.json per le carte da
+// Affari): nessuna richiesta a CardTrader. La stima `est` non si tocca mai.
+const LIVE_TTL = 3600 * 1000;
+let invLoading = false, invTry = 0, invError = "";
+const invStale = () => data.inventory.some(it => !it.sold && !(Date.now() - Date.parse(it.live?.at || 0) < LIVE_TTL));
+async function refreshInv() {
+  const list = data.inventory.filter(it => !it.sold);
+  if (invLoading || !list.length) return;
+  invLoading = true; invError = ""; viewInv();
+  try {
+    const items = list.map(it => isCt(it) ? { bp: it.ct.blueprintId, rev: !!it.ct.reverse } : { tcg: it.card.id });
+    const r = await fetch("/api/live", { method: "POST", body: JSON.stringify({ items }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    const at = new Date().toISOString();
+    list.forEach((it, k) => {
+      const x = j.items[k];
+      if (!x) return;
+      if (x.card) { it.card = x.card; it.live = { at, priceDate: j.priceDate }; }
+      else it.live = { at, priceDate: j.priceDate, idProduct: x.idProduct, ref: x.ref, trend: x.trend, avg30: x.avg30 };
+    });
+    save();
+  } catch (e) { invError = e.message; }
+  invLoading = false;
+  if (tab === "inv") viewInv();
+}
 function viewInv() {
+  if (!invLoading && invStale() && Date.now() - invTry > 60000) { invTry = Date.now(); refreshInv(); return; }
   let invested = 0, value = 0, realized = 0;
   const rows = data.inventory.map((it, i) => {
     const cost = it.buy + it.ship;
@@ -792,9 +818,13 @@ function viewInv() {
       invested += cost; value += ref ?? 0;
       // le carte da Affari si valutano come le valutava lo scanner: vendita su CardTrader (5,3% + IVA)
       const n = net(it.buy, ref, isCt(it) ? { pct: CT_FEE, fix: 0, out: 0, inn: it.ship } : { ...settings, inn: it.ship });
-      const snap = isCt(it) && it.est?.at ? ` <span class="muted">(${esc(stimaDel(it.est.at))})</span>` : "";
+      const src = !isCt(it) ? "" : it.live?.ref != null ? `Cardmarket, listino del ${ddmm(it.live.priceDate)}`
+        : it.live ? "nessun prezzo Cardmarket: " + stimaDel(it.est?.at) : stimaDel(it.est?.at);
+      const snap = src ? ` <span class="muted">(${esc(src)})</span>` : "";
+      // la stima dell'acquisto resta visibile accanto al prezzo di oggi: e' il confronto che valida i segnali
+      const was = isCt(it) && it.live?.ref != null && it.est ? `<div class="small muted">All'acquisto: vendita subito ~${eur(it.est.sellFast)} (${esc(stimaDel(it.est.at))})</div>` : "";
       status = `Vale ~${eur(ref)}${snap} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
-        <button class="b" onclick="sell(${i})">Venduta</button>`;
+        <button class="b" onclick="sell(${i})">Venduta</button>${was}`;
     }
     return `<tr><td>${invCell(it)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
       <td><button class="b" onclick="if(confirm('Eliminare?')){data.inventory.splice(${i},1);save();viewInv()}">✕</button></td></tr>`;
@@ -804,8 +834,11 @@ function viewInv() {
       <div><b>${eur(invested)}</b><span>Capitale in carte</span></div>
       <div><b>${eur(value)}</b><span>${hasCt ? "Valore (lordo / stima)" : "Valore al trend (lordo)"}</span></div>
       <div><b class="${cls(realized)}">${eur(realized)}</b><span>Profitto realizzato</span></div></div></div>
-    <div class="panel scroll">${data.inventory.length ? `<table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">${hasCt ? "Le carte da Affari tengono la stima di quando le hai segnate (vendita immediata su CardTrader). Non si aggiorna da sola: serve a confrontarla col prezzo a cui venderai davvero. " : ""}Per aggiornare i prezzi delle carte da Cerca, aggiungile alla watchlist e premi «Aggiorna prezzi», oppure ricercale di nuovo.</div>`
+    <div class="panel scroll">${data.inventory.length ? `<div class="row" style="margin-bottom:10px;align-items:center">
+      <button class="b p" ${invLoading ? "disabled" : ""} onclick="invTry=Date.now();refreshInv()">${invLoading ? "Aggiorno i prezzi…" : "Aggiorna prezzi"}</button>
+      <span class="small ${invError ? "bad" : "muted"}">${invError ? "Prezzi non aggiornati: " + esc(invError) : "Si aggiornano da soli aprendo l'Inventario, se hanno più di un'ora."}</span></div>
+    <table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note">Carte da Cerca: trend Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
       : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
 }
 

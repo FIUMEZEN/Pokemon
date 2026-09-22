@@ -138,6 +138,39 @@ async function getCard(id) {
   return { card: toCard(await cardMeta(id), g) };
 }
 
+// ---------- prezzi vivi dell'inventario ----------
+// Le carte comprate da Affari hanno solo il blueprint CardTrader. Il ponte verso il listino
+// Cardmarket e' card_market_ids, gia' in cache-blueprints.json (lo scrive scanner.js):
+// nessuna richiesta a CardTrader. Il file si rilegge solo se lo scanner l'ha cambiato.
+const BP_FILE = path.join(__dirname, "cache-blueprints.json");
+let bpIndex = null, bpMtime = 0;
+function blueprintCm(id) {
+  const mtime = fs.statSync(BP_FILE, { throwIfNoEntry: false })?.mtimeMs || 0;
+  if (!bpIndex || mtime !== bpMtime) {
+    bpIndex = new Map(); bpMtime = mtime;
+    for (const list of Object.values(loadJson(BP_FILE, {})))
+      for (const b of list || []) if (b.card_market_ids?.length) bpIndex.set(b.id, b.card_market_ids[0]);
+  }
+  return bpIndex.get(id) ?? null;
+}
+
+// items: [{ tcg: "sv3pt5-6" }] (da Cerca) oppure [{ bp: 117192, rev: false }] (da Affari).
+// Per le carte da Affari il riferimento e' quello dello scanner: il piu' prudente tra trend e avg30
+// (colonne -holo per le reverse).
+async function livePrices(items) {
+  const g = await ensureGuide();
+  const out = await pool(items.slice(0, 500), 10, async it => {
+    if (it.tcg) return { card: toCard(await cardMeta(String(it.tcg)), g) };
+    const idProduct = blueprintCm(+it.bp);
+    const p = idProduct != null ? g.prices.get(idProduct) : null;
+    if (!p) return { idProduct, ref: null };
+    const trend = it.rev ? p.trendHolo : p.trend, avg30 = it.rev ? p.avg30Holo : p.avg30;
+    const refs = [trend, avg30].filter(x => x > 0);
+    return { idProduct, trend: trend ?? null, avg30: avg30 ?? null, ref: refs.length ? Math.min(...refs) : null };
+  });
+  return { priceDate: g.createdAt, items: out };
+}
+
 // ---------- perito: valuta un annuncio di Vinted / Subito / eBay ----------
 // Due tipi di annuncio, due strategie:
 //  - CARTA SINGOLA: chi vende scrive nome e numero ("Charizard ex 199/165").
@@ -872,6 +905,10 @@ http.createServer(async (req, res) => {
       if (u.pathname === "/api/scan") return send(res, 200, scanStatus());
     } else if (req.method === "POST" && u.pathname === "/api/scan") {
       return send(res, 200, startScan());
+    } else if (req.method === "POST" && u.pathname === "/api/live") {
+      const b = JSON.parse(await readBody(req));
+      if (!Array.isArray(b.items)) return send(res, 400, { error: "formato non valido" });
+      return send(res, 200, await livePrices(b.items));
     } else if (req.method === "POST" && u.pathname === "/api/appraise") {
       const b = JSON.parse(await readBody(req));
       const s = v => typeof v === "string" ? v.slice(0, 8000) : "";
