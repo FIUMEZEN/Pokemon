@@ -127,6 +127,32 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     check("prezzi vivi", inv.length > 0 && inv.every(x => x.live), JSON.stringify(inv));
     check("pagina inventario", await ev(`/Capitale in carte/.test(document.querySelector("#view").innerText)`));
 
+    console.log("\nBanco di vendita:");
+    if (await ev(`data.inventory.length > 0`)) {
+      const costo = await ev(`data.inventory[0].buy + data.inventory[0].ship`);
+      const floor = await ev(`floorPrice(data.inventory[0])`);
+      check("prezzo minimo sopra il costo", floor > costo, `minimo ${floor.toFixed(2)} contro costo ${costo.toFixed(2)}`);
+      await ev(`__ans = ["CardTrader", "@def"]; listCard(0); 1`); await sleep(200);
+      const l = await ev(`data.inventory[0].listing`);
+      check("messa in vendita", !!l && l.platform === "CardTrader" && l.price > 0, l ? `${l.platform} a ${l.price} €` : "nessun annuncio");
+      check("annuncio visibile in pagina", await ev(`/In vendita su/.test(document.querySelector("#view").innerText)`));
+      if (l) {
+        await ev(`__ans = [${JSON.stringify((l.price * 0.9).toFixed(2).replace(".", ","))}]; dropPrice(0); 1`); await sleep(200);
+        check("ribasso registrato", await ev(`data.inventory[0].listing.drops.length === 1 && data.inventory[0].listing.price < ${l.price}`));
+      }
+      await ev(`__ans = ["@def", "@def"]; sell(0); 1`); await sleep(200);
+      const sold = await ev(`data.inventory[0].sold`);
+      const senzaAnnuncio = await ev(`!data.inventory[0].listing`);
+      check("vendita con incasso reale", !!sold && sold.net > 0 && !!sold.at && senzaAnnuncio, sold ? `incassati ${sold.net} €` : "non registrata");
+      check("guadagno realizzato in pagina", await ev(`/Guadagno realizzato/.test(document.querySelector("#view").innerText)`));
+      // il conto deve tornare al centesimo: incassato - imballaggio - (prezzo pagato + spedizione)
+      const conti = await ev(`(() => { const it = data.inventory[0], r = soldProfit(it);
+        return { profit: r.profit, atteso: it.sold.net - (it.sold.out || 0) - it.buy - it.ship, out: it.sold.out, plat: it.sold.platform }; })()`);
+      check("guadagno calcolato al centesimo", Math.abs(conti.profit - conti.atteso) < 0.005, `${conti.profit.toFixed(2)} € su ${conti.plat}, imballaggio ${conti.out} €`);
+      const floorCt = await ev(`floorPrice(data.inventory[0], "CardTrader") > floorPrice(data.inventory[0], "Vinted")`);
+      check("il prezzo minimo cambia con la piattaforma", floorCt, "CardTrader (6,47%) più alto di Vinted (0%)");
+    }
+
     console.log("\nCalcolatore:");
     await ev(`go("calc"); 1`);
     await ev(`const s = (i, v) => { const e = document.querySelector(i); e.value = v; e.oninput(); }; s("#cb", 20); s("#cs", 30); 1`);

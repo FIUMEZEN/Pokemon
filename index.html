@@ -834,12 +834,30 @@ function addInv(id) {
   data.inventory.push({ uid: Date.now(), card: c, buy: price, ship: settings.inn, date: new Date().toISOString().slice(0, 10), sold: null });
   save(); go("inv");
 }
+// Si registra quello che hai incassato DAVVERO, non la stima: e' l'unico modo per sapere
+// fra qualche mese se il mestiere rende. Il netto e' precompilato con le commissioni della
+// piattaforma, ma va corretto con la cifra vera dell'accredito.
 function sell(i) {
   const it = data.inventory[i];
-  const price = num(prompt(`Prezzo di vendita di ${invName(it)} (€):`, invRef(it) ?? ""));
+  const plat = platOf(it);
+  const price = num(prompt(`A quanto l'hai venduta? (€, prezzo pagato dal compratore)`, it.listing?.price ?? invRef(it) ?? ""));
   if (isNaN(price)) return;
-  it.sold = { price, pct: settings.pct, fix: settings.fix, out: settings.out };
+  const f = feesOf(plat);
+  const stima = price * (1 - f.pct / 100) - f.fix;      // l'imballaggio si sottrae dopo, non lo trattiene la piattaforma
+  const net = num(prompt(`Quanto ti è stato accreditato su ${plat}, al netto delle commissioni? (€)\nStima con ${f.pct.toFixed(1)}%${f.fix ? " + " + eur(f.fix) : ""}: ${eur(stima)}`, stima.toFixed(2)));
+  if (isNaN(net)) return;
+  // "out" e' quello che la spedizione costa a te (imballaggio): non lo trattiene la piattaforma,
+  // quindi va sottratto dall'accredito, altrimenti il guadagno risulta piu' alto del vero
+  it.sold = { price, net, out: f.out, platform: plat, at: new Date().toISOString(), date: today() };
+  it.listing = null;
   save(); viewInv();
+}
+// guadagno reale di una carta venduta (le vendite vecchie tenevano solo le commissioni stimate)
+function soldProfit(it) {
+  const cost = it.buy + it.ship;
+  const s = it.sold;
+  const net = s.net != null ? s.net - (s.out ?? 0) : s.price * (1 - (s.pct ?? 0) / 100) - (s.fix ?? 0) - (s.out ?? 0);
+  return { net, profit: net - cost, days: s.date && it.date ? Math.round((Date.parse(s.date) - Date.parse(it.date)) / 86400000) : null };
 }
 // Prezzi vivi: all'apertura dell'Inventario, se sono piu' vecchi di un'ora, si chiedono al server
 // in un colpo solo. Il server usa il listino Cardmarket (e cache-blueprints.json per le carte da
@@ -868,6 +886,61 @@ async function refreshInv() {
   invLoading = false;
   if (tab === "inv") viewInv();
 }
+// --- banco di vendita ---------------------------------------------------------
+// Prezzo sotto cui ci rimetti: recupera quello che hai speso, le commissioni della piattaforma
+// e quello che ti costa spedire. La spedizione d'acquisto e' gia' spesa, ma va recuperata
+// perche' il conto dell'operazione torni.
+function feesOf(platform) {
+  if (platform === "CardTrader") return { pct: CT_FEE, fix: 0, out: settings.out };
+  const p = PLATFORMS[platform];
+  return p ? { ...p, out: settings.out } : { pct: settings.pct, fix: settings.fix, out: settings.out };
+}
+// piattaforma di riferimento: quella dell'annuncio, o quella naturale della carta
+const platOf = it => it.listing?.platform || it.sold?.platform || (isCt(it) ? "CardTrader" : settings.plat);
+function floorPrice(it, platform = platOf(it)) {
+  const f = feesOf(platform);
+  const cost = it.buy + it.ship + f.fix + f.out;
+  return cost / (1 - f.pct / 100);
+}
+const days = from => from ? Math.floor((Date.now() - Date.parse(from)) / 86400000) : null;
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+function listCard(i) {
+  const it = data.inventory[i];
+  const floor = floorPrice(it), ref = invRef(it);
+  const plat = prompt(`Dove la metti in vendita?\n(${Object.keys(PLATFORMS).filter(p => p !== "Personalizzata").join(", ")}, CardTrader, o scrivi altro)`, it.listing?.platform || (isCt(it) ? "CardTrader" : settings.plat));
+  if (!plat) return;
+  const sug = Math.max(floor * 1.1, ref ?? 0);
+  const price = num(prompt(`A che prezzo? (€)\nSotto ${eur(floor)} ci rimetti. Valore stimato oggi: ${eur(ref)}`, sug.toFixed(2)));
+  if (isNaN(price)) return;
+  it.listing = { platform: plat.trim(), price, at: new Date().toISOString(), drops: [] };
+  save(); viewInv();
+}
+function dropPrice(i) {
+  const it = data.inventory[i];
+  if (!it.listing) return;
+  const price = num(prompt(`Nuovo prezzo su ${it.listing.platform} (€)\nOra: ${eur(it.listing.price)} · sotto ${eur(floorPrice(it))} ci rimetti`, it.listing.price));
+  if (isNaN(price)) return;
+  const floor = floorPrice(it);
+  if (price < floor && !confirm(`A ${eur(price)} ci rimetti: il minimo per rientrare è ${eur(floor)}. Ribasso lo stesso?`)) return;
+  it.listing.drops.push({ at: new Date().toISOString(), price });
+  it.listing.price = price;
+  save(); viewInv();
+}
+function unlist(i) {
+  const it = data.inventory[i];
+  if (it.listing && confirm("Tolgo l'annuncio? La carta resta in magazzino.")) { it.listing = null; save(); viewInv(); }
+}
+
+// Cancellare una carta venduta toglie una riga dalla contabilita': va detto.
+function removeInv(i) {
+  const it = data.inventory[i];
+  const msg = it.sold ? `${invName(it)} è già venduta: cancellandola sparisce dal guadagno realizzato e dalle statistiche. Procedo?`
+    : it.listing ? `${invName(it)} è in vendita su ${it.listing.platform}: cancello la carta e il suo annuncio?`
+    : "Eliminare questa carta dall'inventario?";
+  if (confirm(msg)) { data.inventory.splice(i, 1); save(); viewInv(); }
+}
+
 function viewInv() {
   if (!invLoading && invStale() && Date.now() - invTry > 60000) { invTry = Date.now(); refreshInv(); return; }
   let invested = 0, value = 0, realized = 0;
@@ -876,9 +949,12 @@ function viewInv() {
     const ref = invRef(it);
     let status;
     if (it.sold) {
-      const s = it.sold, p = s.price * (1 - s.pct / 100) - s.fix - s.out - cost;
-      realized += p;
-      status = `Venduta a ${eur(s.price)} → <b class="${cls(p)}">${eur(p)}</b>`;
+      const r = soldProfit(it);
+      realized += r.profit;
+      const stimato = it.est?.profitFast;
+      status = `Venduta a ${eur(it.sold.price)}${it.sold.platform ? " su " + esc(it.sold.platform) : ""} · incassati ${eur(r.net)}
+        → <b class="${cls(r.profit)}">${eur(r.profit)}</b>${r.days != null ? ` <span class="small muted">dopo ${r.days} giorni</span>` : ""}
+        ${stimato != null ? `<div class="small muted">All'acquisto stimavi +${eur(stimato)}${r.profit != null ? ` · differenza <span class="${cls(r.profit - stimato)}">${eur(r.profit - stimato)}</span>` : ""}</div>` : ""}`;
     } else {
       invested += cost; value += ref ?? 0;
       // le carte da Affari si valutano come le valutava lo scanner: vendita su CardTrader (5,3% + IVA)
@@ -891,22 +967,48 @@ function viewInv() {
       const snap = src ? ` <span class="muted">(${esc(src)})</span>` : "";
       // la stima dell'acquisto resta visibile accanto al prezzo di oggi: e' il confronto che valida i segnali
       const was = isCt(it) && it.live?.ref != null && it.est ? `<div class="small muted">All'acquisto: vendita subito ~${eur(it.est.sellFast)} (${esc(stimaDel(it.est.at))})</div>` : "";
+      const floor = floorPrice(it), inStock = days(it.date), listed = it.listing ? days(it.listing.at) : null;
+      const vendita = it.listing
+        ? `<div style="margin-top:4px">In vendita su <b>${esc(it.listing.platform)}</b> a <b>${eur(it.listing.price)}</b>
+             <span class="small muted">da ${listed} ${listed === 1 ? "giorno" : "giorni"}${it.listing.drops.length ? ` · ${it.listing.drops.length} ribass${it.listing.drops.length === 1 ? "o" : "i"}` : ""}</span>
+             <button class="b" onclick="dropPrice(${i})">Ribassa</button>
+             <button class="b" onclick="sell(${i})">Venduta</button>
+             <button class="b" onclick="unlist(${i})">Ritira</button></div>`
+        : `<div style="margin-top:4px"><button class="b p" onclick="listCard(${i})">Metti in vendita</button>
+             <button class="b" onclick="sell(${i})">Venduta</button></div>`;
+      const fermo = inStock != null && inStock >= 30 && !it.listing
+        ? `<div class="small warn">Ferma in magazzino da ${inStock} giorni e non è in vendita</div>` : "";
       status = `Vale ~${eur(ref)}${snap} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
-        <button class="b" onclick="sell(${i})">Venduta</button>${was}`;
+        <div class="small muted">Sotto ${eur(floor)} ci rimetti${inStock != null ? ` · in magazzino da ${inStock} ${inStock === 1 ? "giorno" : "giorni"}` : ""}</div>${was}${fermo}${vendita}`;
     }
     return `<tr><td>${invCell(it)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
-      <td><button class="b" onclick="if(confirm('Eliminare?')){data.inventory.splice(${i},1);save();viewInv()}">✕</button></td></tr>`;
+      <td><button class="b" onclick="removeInv(${i})">✕</button></td></tr>`;
   }).join("");
   const hasCt = data.inventory.some(isCt);
+  const aperte = data.inventory.filter(it => !it.sold);
+  const vendute = data.inventory.filter(it => it.sold);
+  const inVendita = aperte.filter(it => it.listing).length;
+  const ferme = aperte.filter(it => !it.listing && (days(it.date) ?? 0) >= 30).length;
+  const gg = vendute.map(it => soldProfit(it).days).filter(d => d != null);
+  const medio = gg.length ? Math.round(gg.reduce((a, b) => a + b, 0) / gg.length) : null;
+  // il confronto che conta: quanto stimava lo scanner quando hai comprato, quanto hai incassato
+  const conStima = vendute.filter(it => it.est?.profitFast != null);
+  const stimato = conStima.reduce((a, it) => a + it.est.profitFast, 0);
+  const reale = conStima.reduce((a, it) => a + soldProfit(it).profit, 0);
   $("#view").innerHTML = `<div class="panel"><div class="stats">
-      <div><b>${eur(invested)}</b><span>Capitale in carte</span></div>
+      <div><b>${eur(invested)}</b><span>Capitale in carte${aperte.length ? ` (${aperte.length})` : ""}</span></div>
       <div><b>${eur(value)}</b><span>${hasCt ? "Valore (lordo / stima)" : "Valore al trend (lordo)"}</span></div>
-      <div><b class="${cls(realized)}">${eur(realized)}</b><span>Profitto realizzato</span></div></div></div>
+      <div><b class="${cls(realized)}">${eur(realized)}</b><span>Guadagno realizzato${vendute.length ? ` (${vendute.length} vendute)` : ""}</span></div>
+      ${aperte.length ? `<div><b>${inVendita}/${aperte.length}</b><span>In vendita${ferme ? ` · ${ferme} ferme da 30+ gg` : ""}</span></div>` : ""}
+      ${medio != null ? `<div><b>${medio} gg</b><span>Tempo medio per vendere</span></div>` : ""}
+      ${conStima.length ? `<div><b class="${cls(reale - stimato)}">${eur(reale - stimato)}</b><span>Realizzato meno stimato (${conStima.length} carte)</span></div>` : ""}
+    </div></div>
     <div class="panel scroll">${data.inventory.length ? `<div class="row" style="margin-bottom:10px;align-items:center">
       <button class="b p" ${invLoading ? "disabled" : ""} onclick="invTry=Date.now();refreshInv()">${invLoading ? "Aggiorno i prezzi…" : "Aggiorna prezzi"}</button>
       <span class="small ${invError ? "bad" : "muted"}">${invError ? "Prezzi non aggiornati: " + esc(invError) : "Si aggiornano da soli aprendo l'Inventario, se hanno più di un'ora."}</span></div>
     <table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note">Carte da Cerca: il più basso tra trend e media a 30 giorni di Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
+    <div class="note"><b>Sotto il prezzo minimo ci rimetti</b>: recupera prezzo pagato, spedizione d'acquisto, commissioni e imballaggio della piattaforma scelta in alto. Quando vendi registra <b>l'incasso vero</b>, non la stima: «realizzato meno stimato» è la misura che dice se le occasioni dello scanner sono reali.
+      Carte da Cerca: il più basso tra trend e media a 30 giorni di Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
       : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
 }
 
