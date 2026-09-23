@@ -478,7 +478,7 @@ function appraiseHtml(d) {
 // --- Affari: occasioni trovate dallo scanner su CardTrader ---
 let dealsData = null, scanPoll = null;
 // budget uguale al tetto dello scanner (maxBuy), altrimenti la pagina nasconde cio' che lo scanner trova
-const DEAL_DEFAULTS = { budget: 1000, minProfit: 1, sort: "fast", limit: 48 };
+const DEAL_DEFAULTS = { budget: 1000, minProfit: 1, sort: "fast", limit: 48, lang: "", country: "" };
 const dealPrefs = (() => {
   try {
     const p = { ...DEAL_DEFAULTS, ...JSON.parse(localStorage.getItem("deals") || "{}") };
@@ -488,6 +488,9 @@ const dealPrefs = (() => {
 })();
 const saveDealPrefs = () => { try { localStorage.setItem("deals", JSON.stringify(dealPrefs)); } catch {} };
 const LANG_NAME = { en: "Inglese", it: "Italiano", de: "Tedesco", fr: "Francese", es: "Spagnolo", pt: "Portoghese" };
+const LANG_FLAG = { en: "🇬🇧", it: "🇮🇹", de: "🇩🇪", fr: "🇫🇷", es: "🇪🇸", pt: "🇵🇹" };
+const FLAG = c => c ? String.fromCodePoint(...[...c.toUpperCase()].slice(0, 2).map(ch => 0x1f1a5 + ch.charCodeAt(0))) : "";
+const langTag = o => `<span class="tag">${LANG_FLAG[o.lang] || ""} ${esc(LANG_NAME[o.lang] || o.lang || "?")}</span>`;
 const ago = ms => ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min fa` : ms < 1728e5 ? `${Math.round(ms / 36e5)} ore fa` : `${Math.round(ms / 864e5)} giorni fa`;
 // spedizione d'acquisto calcolata dallo scanner coi metodi del venditore; 1,50 € solo per le
 // occasioni vecchie, precedenti al calcolo vero
@@ -524,8 +527,8 @@ function scanBox(st) {
     ${st.error ? `<div class="small bad" style="margin-top:8px">⛔ L'ultimo giro non è riuscito: ${esc(st.error)}. I giri automatici riprendono tra 15 minuti.</div>` : ""}`;
 }
 
-function dealKey(o) {
-  return `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+function dealKey(o) {   // identica a keyOf in scanner.js
+  return `${o.url}|${o.seller}|${o.buy}|${o.reverse}|${o.lang}`;
 }
 function invCopies(key) {
   return data.inventory.filter(it => it.key === key).length;
@@ -574,9 +577,9 @@ function dealCard(o) {
   return `<div class="deal${risky ? " risky" : ""}">
     <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
       ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
-    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}<b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
+    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}${langTag(o)} <b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
     <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
-    <div class="small muted">${LANG_NAME[o.lang] || esc(o.lang || "?")} · Near Mint · ${o.depth} offerte</div>
+    <div class="small muted">Near Mint · ${o.depth} offerte in ${esc(LANG_NAME[o.lang] || o.lang || "?")}</div>
     <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b> <span class="small muted">+ ${eur(shipOf(o))} sped.</span></div>
     ${o.shipUnknown ? '<div class="small warn">⚠️ Spedizione non esposta dal venditore (CT Zero?): calcolati 7,90 €, controlla alla cassa</div>'
       : o.shipMethod ? `<div class="small muted">${esc(o.shipMethod)}${o.shipTracked ? " · tracciata" : " · non tracciata"}</div>` : ""}
@@ -585,7 +588,7 @@ function dealCard(o) {
     ${o.lonely ? '<div class="small warn">⚠️ Prezzo isolato: molto sotto tutte le altre offerte della stessa carta</div>' : ""}
     ${o.suspect ? '<div class="small bad">⛔ Guadagno troppo alto per essere credibile</div>' : ""}
     ${o.note ? `<div class="small muted">«${esc(o.note)}»</div>` : ""}
-    <div class="small muted">${esc(o.seller || "?")}${o.country ? " · " + esc(o.country) : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}</div>
+    <div class="small muted">${esc(o.seller || "?")}${o.country ? ` · spedisce da ${FLAG(o.country)} ${esc(o.country)}` : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}</div>
     <a class="dlink" href="${esc(o.url)}" target="_blank" rel="noopener">Apri su CardTrader</a>
     <button class="b" data-key="${esc(key)}" onclick="buyDeal(this.dataset.key)">${copies ? "Aggiungi copia" : "Segna come comprata"}</button>
   </div>`;
@@ -599,14 +602,17 @@ function renderDeals(st) {
   }
   const p = dealPrefs;
   const all = d.opportunities || [];
-  const pass = o => o.buy <= p.budget && o.profitFast >= p.minProfit;
+  const pass = o => o.buy <= p.budget && o.profitFast >= p.minProfit
+    && (!p.lang || o.lang === p.lang) && (!p.country || o.country === p.country);
   const sorter = { fast: (a, b) => b.profitFast - a.profitFast, roi: (a, b) => fastRoi(b) - fastRoi(a), cheap: (a, b) => a.buy - b.buy,
     recent: (a, b) => (Date.parse(b.firstSeen || 0) - Date.parse(a.firstSeen || 0)) || b.profitFast - a.profitFast }[p.sort] || ((a, b) => b.profitFast - a.profitFast);
   const solid = all.filter(o => !o.lonely && !o.suspect && pass(o)).sort(sorter);
   const risky = all.filter(o => (o.lonely || o.suspect) && pass(o)).sort(sorter);
   const shown = solid.slice(0, p.limit);
   const sum = (list, f) => list.reduce((s, o) => s + o[f], 0);
-  const bundles = (d.bundles || []).filter(b => b.cards?.[0]?.name);   // le scansioni vecchie non hanno i dettagli
+  const bundles = (d.bundles || []).filter(b => b.cards?.[0]?.name    // le scansioni vecchie non hanno i dettagli
+    && (!p.country || b.country === p.country)
+    && (!p.lang || b.cards.some(c => c.lang === p.lang)));
 
   $("#view").innerHTML = `
     <div class="panel"><div id="scanbox">${scanBox(st)}</div>
@@ -620,6 +626,12 @@ function renderDeals(st) {
     <div class="panel"><div class="row">
       <label>Spendo al massimo € a carta<input type="number" min="1" step="5" value="${p.budget}" onchange="dealPrefs.budget=+this.value||${DEAL_DEFAULTS.budget};saveDealPrefs();renderDeals(lastScan)"></label>
       <label>Guadagno minimo €<input type="number" min="0" step="0.5" value="${p.minProfit}" onchange="dealPrefs.minProfit=+this.value||0;saveDealPrefs();renderDeals(lastScan)"></label>
+      <label>Lingua<select onchange="dealPrefs.lang=this.value;saveDealPrefs();renderDeals(lastScan)">
+        <option value="">Tutte</option>
+        ${Object.keys(LANG_NAME).map(l => `<option value="${l}" ${p.lang === l ? "selected" : ""}>${LANG_FLAG[l]} ${LANG_NAME[l]}</option>`).join("")}</select></label>
+      <label>Venditore in<select onchange="dealPrefs.country=this.value;saveDealPrefs();renderDeals(lastScan)">
+        <option value="">Tutti i paesi</option>
+        ${[...new Set(all.map(o => o.country).filter(Boolean))].sort().map(c => `<option value="${esc(c)}" ${p.country === c ? "selected" : ""}>${FLAG(c)} ${esc(c)}</option>`).join("")}</select></label>
       <label>Ordina per<select onchange="dealPrefs.sort=this.value;saveDealPrefs();renderDeals(lastScan)">
         <option value="fast" ${p.sort === "fast" ? "selected" : ""}>Guadagno vendendo subito</option>
         <option value="roi" ${p.sort === "roi" ? "selected" : ""}>Rendimento %</option>
@@ -627,7 +639,8 @@ function renderDeals(st) {
         <option value="recent" ${p.sort === "recent" ? "selected" : ""}>Più recenti</option></select></label>
     </div>
     <div class="note">Il guadagno grande è quello <b>vendendo subito</b> (ti metti sotto la seconda offerta oggi), già al netto di commissioni CardTrader (5,3% + IVA) e della spedizione vera del venditore (in Italia: 1,60 € non tracciata fino a 25 € di carrello, poi Raccomandata da 7,90 €). Solo venditori dell'Unione Europea.
-      «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.</div></div>
+      «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.
+      <b>La lingua conta</b>: una carta italiana vale circa la metà della stessa carta in inglese, quindi ogni lingua è confrontata solo con le offerte della stessa lingua. Se compri un'italiana, la rivendi sul mercato italiano.</div></div>
     ${shown.length ? `<div class="grid">${shown.map(dealCard).join("")}</div>
       ${solid.length > shown.length ? `<div style="text-align:center;margin-bottom:14px"><button class="b" onclick="dealPrefs.limit+=48;renderDeals(lastScan)">Mostra altre (${solid.length - shown.length})</button></div>` : ""}`
       : '<div class="panel msg">Nessuna occasione con questi filtri. Prova ad alzare il budget o abbassare il guadagno minimo.</div>'}
@@ -635,7 +648,7 @@ function renderDeals(st) {
       <div class="note" style="margin-top:2px">Comprando più carte dallo stesso venditore la spedizione si paga una volta. Attenzione: sopra i 25 € di carrello la spedizione economica non vale più, e il guadagno qui sotto ne tiene già conto.</div>
       ${bundles.slice(0, 6).map(b => `<div style="margin-top:12px"><b>${esc(b.seller)}</b> · ${b.n} carte · spendi ${eur(b.cost)}${b.ship != null ? ` + ${eur(b.ship)} sped.` : ""} ·
         <b class="good">+${eur(b.profit)}</b> vendendo subito
-        <div class="thumbs">${b.cards.map(c => `<a href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.name)} · ${eur(c.buy)}">${c.image ? `<img src="${esc(c.image)}" alt="${esc(c.name)}" loading="lazy">` : esc(c.name)}</a>`).join("")}</div></div>`).join("")}
+        <div class="thumbs">${b.cards.map(c => `<a href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.name)} · ${eur(c.buy)}${c.lang ? " · " + (LANG_NAME[c.lang] || c.lang) : ""}">${c.image ? `<img src="${esc(c.image)}" alt="${esc(c.name)}" loading="lazy">` : esc(c.name)}</a>`).join("")}</div></div>`).join("")}
     </div>` : ""}
     ${risky.length ? `<div class="panel"><details><summary>⚠️ Da verificare con attenzione (${risky.length})</summary>
       <div class="note">Annunci molto sotto tutte le altre offerte della stessa carta, o con guadagni troppo alti per essere credibili. A volte è un errore del venditore, più spesso una carta non come descritta. Guarda foto, descrizione e voti prima di comprare.</div>
@@ -685,14 +698,20 @@ const CT_FEE = 5.3 * 1.22;   // commissione venditore CardTrader, come feePct in
 function isCt(it) { return it.src === "ct"; }
 function invName(it) { return isCt(it) ? it.ct.name : it.card.name; }
 // carte da Affari: il prezzo vivo Cardmarket se c'e', altrimenti la stima fatta all'acquisto
-function invRef(it) { return isCt(it) ? it.live?.ref ?? it.est?.sellFast : sellPrice(it.card); }
+function invRef(it) {
+  if (!isCt(it)) return sellPrice(it.card);
+  const live = it.live?.ref, est = it.est?.sellFast;
+  // il listino Cardmarket è unico per tutte le lingue: su una carta non inglese è un tetto ottimista
+  if (live != null && est != null && it.ct?.lang && it.ct.lang !== "en") return Math.min(live, est);
+  return live ?? est;
+}
 const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }); };
 function stimaDel(at) { return ddmm(at) ? "stima del " + ddmm(at) : ""; }
 function invCell(it) {
   if (!isCt(it)) return cardCell(it.card);
   const c = it.ct;
   const bits = [c.expansion, c.version].filter(Boolean).join(" · ");
-  return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}${c.reverse ? ' <span class="tag">reverse</span>' : ""}
+  return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}${c.reverse ? ' <span class="tag">reverse</span>' : ""}${c.lang ? " " + langTag(c) : ""}
     <small>${esc(bits)}<br>${esc(c.seller || "?")}${c.country ? " · " + esc(c.country) : ""}
     · <a href="${esc(c.url)}" target="_blank" rel="noopener">CardTrader</a></small></div></div>`;
 }

@@ -117,9 +117,13 @@ function analyse(exp, blueprints, products, cm) {
       }))
       .sort((a, b) => a.v - b.v);
 
-    // normale e reverse sono due carte diverse: si valutano separatamente
-    for (const rev of [false, true]) {
-      const g = nm.filter(x => x.rev === rev);
+    // Normale e reverse sono due carte diverse. E lo sono anche le lingue: misurato il 22/09/2026,
+    // l'offerta NM italiana piu' bassa vale il 41-54% di quella inglese della stessa carta (tedesco
+    // 66-87%, spagnolo e francese ~100%). Con le lingue mescolate, il "prezzo di mercato" di una
+    // carta italiana era quello delle inglesi: un'occasione inventata. Ogni gruppo
+    // (carta, reverse, lingua) e' quindi un mercato a se', con le sue >= 5 offerte NM.
+    for (const rev of [false, true]) for (const lang of LANGS) {
+      const g = nm.filter(x => x.rev === rev && x.lang === lang);
       if (g.length < CFG.minDepth) continue;
       const best = g[0];
       if (best.v < CFG.minBuy || best.v > CFG.maxBuy) continue;
@@ -147,8 +151,10 @@ function analyse(exp, blueprints, products, cm) {
       const net = p => p * (1 - CFG.feePct / 100) - CFG.shipOut - cost;
       const profit = net(sell);                   // scenario paziente: aspetti che le offerte sotto si esauriscano
       const roi = profit / cost;
-      // scenario veloce: ti metti subito sotto la seconda offerta per vendere in giornata
-      const sellFast = Math.min(g[1].v, cmRef);
+      // Scenario veloce: ti metti subito sotto la seconda offerta per vendere in giornata. Ma se
+      // l'annuncio ha piu' copie, comprandone una le altre restano in vendita a quel prezzo: la
+      // concorrenza resta il prezzo d'acquisto, non la seconda offerta.
+      const sellFast = Math.min(best.qty > 1 ? best.v : g[1].v, cmRef);
       const profitFast = net(sellFast);
       // un affare deve reggere anche vendendo subito, altrimenti e' solo una scommessa sull'attesa
       if (profitFast <= 0) continue;
@@ -156,7 +162,7 @@ function analyse(exp, blueprints, products, cm) {
 
       out.push({
         name: b.name, version: b.version || null, expansion: exp.name, code: exp.code,
-        reverse: rev, lang: best.lang, buy: +best.v.toFixed(2), market: +market.toFixed(2),
+        reverse: rev, lang, buy: +best.v.toFixed(2), market: +market.toFixed(2),
         cmTrend: cmRef ?? null, sell: +sell.toFixed(2),
         sellFast: +sellFast.toFixed(2), profitFast: +profitFast.toFixed(2),
         profit: +profit.toFixed(2), roi: +roi.toFixed(3), depth: g.length, qty: best.qty,
@@ -266,7 +272,7 @@ function analyse(exp, blueprints, products, cm) {
   // offerta, e tiene la data della prima volta che e' stata vista. Serve all'etichetta "NUOVA".
   const now = new Date().toISOString();
   const OLD = "2000-01-01T00:00:00.000Z";                // "gia' presente prima che si tenesse la data"
-  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}|${o.lang}`;
   const seen = new Map((prev?.opportunities || []).map(o => [keyOf(o), o.firstSeen || prev.generatedAt]));
   for (const f of found) f.firstSeen = seen.get(keyOf(f)) || now;
   let fresh = found.filter(f => f.firstSeen === now).length;
@@ -300,8 +306,9 @@ function analyse(exp, blueprints, products, cm) {
       const sh = shipCost(bundleShips.get(seller), sub, v.length);
       // somma dei guadagni singoli, restituendo le spedizioni singole e pagandone una sola
       const profit = v.reduce((s, x) => s + x.profitFast + x.ship, 0) - sh.cost;
-      return { seller, n: v.length, cost: +sub.toFixed(2), ship: sh.cost, shipMethod: sh.name, profit: +profit.toFixed(2),
-        cards: v.map(x => ({ name: x.name, image: x.image, buy: x.buy, url: x.url })) };
+      return { seller, country: v[0].country ?? null, n: v.length, cost: +sub.toFixed(2), ship: sh.cost, shipMethod: sh.name,
+        profit: +profit.toFixed(2),
+        cards: v.map(x => ({ name: x.name, image: x.image, buy: x.buy, url: x.url, lang: x.lang })) };
     })
     .filter(b => b.profit > 0)
     .sort((a, b) => b.profit - a.profit);
@@ -342,8 +349,15 @@ function analyse(exp, blueprints, products, cm) {
 // L'istante vero di chiusura sta tra end.lastSeen ed end.at: le espansioni calde si controllano
 // ogni 5 minuti, le altre ogni ora. Le copie vendute di un annuncio con piu' copie vanno in qtyDrops.
 function updateLog(log, found, okCodes, listings, now, mode) {
-  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}`;
+  const keyOf = o => `${o.url}|${o.seller}|${o.buy}|${o.reverse}|${o.lang}`;
   const E = log.entries;
+  // migrazione una tantum: chiavi senza lingua (la lingua e' gia' nel campo lang della voce)
+  for (const [k, e] of Object.entries(E)) {
+    if (k.split("|").length >= 5 || !e.lang) continue;
+    const k2 = `${k}|${e.lang}`;
+    if (!E[k2]) { e.key = k2; E[k2] = e; }
+    delete E[k];
+  }
   const here = new Set();
   let opened = 0, closed = 0;
   for (const f of found) {
