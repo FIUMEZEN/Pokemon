@@ -75,7 +75,7 @@
       <label>Costo spedizione per te €<input type="number" id="shipOut" step="0.1" min="0" title="La spedizione la paga il compratore: qui va solo quello che resta a te, cioè l'imballaggio"></label>
       <label>Spedizione acquisto €<input type="number" id="shipIn" step="0.1" min="0"></label>
     </div>
-    <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. «Paga al massimo» in Cerca e Watchlist, l'inventario delle carte da Cerca e il calcolatore li usano tutti.</div>
+    <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. «Paga al massimo» in Cerca e Watchlist, il prezzo minimo di vendita e l'inventario li usano tutti.</div>
   </section>
   <div id="view"></div>
 </main>
@@ -128,12 +128,8 @@ function net(buy, sell, s = settings) {
   const proceeds = sell * (1 - s.pct / 100) - s.fix - s.out;
   return { profit: proceeds - cost, roi: (proceeds - cost) / cost };
 }
-// offerta piu' bassa del listino: QUALSIASI condizione e lingua (spread mediano 52% sul trend).
-// Non e' un prezzo d'acquisto: si mostra solo come informazione, mai per calcolare margini.
-const buyPrice = c => c.cm.low;
 // rivendita prudente: il piu' basso tra trend e media a 30 giorni, come scanner, perito e inventario
 const sellPrice = c => { const r = [c.cm.trend, c.cm.avg30].filter(x => x > 0); return r.length ? Math.min(...r) : null; };
-const momentum = c => c.cm.avg7 && c.cm.avg30 ? c.cm.avg7 / c.cm.avg30 - 1 : null;
 // Comprando su Vinted il compratore paga la protezione acquisti (0,70 € + 5%) piu' la spedizione:
 // il prezzo massimo da offrire e' piu' basso. Stessi valori del perito in server.js.
 const VINTED_BUY = { fix: 0.7, pct: 0.05, ship: 3 };
@@ -185,13 +181,13 @@ function initSettings() {
 }
 
 // ---------- viste ----------
-const TABS = { perito: "Perito", deals: "Affari", search: "Cerca", watch: "Watchlist", inv: "Inventario", calc: "Calcolatore" };
+const TABS = { perito: "Perito", deals: "Affari", search: "Cerca", watch: "Watchlist", inv: "Inventario" };
 function render() {
   $("#nav").innerHTML = Object.entries(TABS).map(([k, v]) => `<button class="${k === tab ? "on" : ""}" onclick="go('${k}')">${v}</button>`).join("");
   // Perito e Affari calcolano gia' i costi delle piattaforme per conto loro: li' il riquadro
   // delle commissioni non conta nulla e sul telefono occupava mezza schermata.
   $("#settings").style.display = tab === "perito" || tab === "deals" ? "none" : "";
-  ({ perito: viewPerito, deals: viewDeals, search: viewSearch, watch: viewWatch, inv: viewInv, calc: viewCalc })[tab]();
+  ({ perito: viewPerito, deals: viewDeals, search: viewSearch, watch: viewWatch, inv: viewInv })[tab]();
 }
 
 // --- Perito: incolli il testo di un annuncio e ti dice cosa c'e' dentro e quanto vale ---
@@ -776,11 +772,9 @@ function maxBuyCell(c) {
 function resultsHtml(cards) {
   if (!cards.length) return '<div class="msg">Nessun risultato.</div>';
   const rows = cards.map(c => {
-    const m = momentum(c);
     return `<tr>
       <td>${cardCell(c)}</td>
-      <td>${eur(buyPrice(c))}</td><td>${eur(c.cm.trend)}</td><td>${eur(c.cm.avg30)}</td>
-      <td class="${cls(m)}">${pct(m)}</td>
+      <td>${eur(c.cm.trend)}</td><td>${eur(c.cm.avg30)}</td>
       <td>${maxBuyCell(c)}</td>
       <td>${fresh(c)}</td>
       <td class="l">
@@ -789,9 +783,9 @@ function resultsHtml(cards) {
         ${c.cardmarketUrl ? `<a href="${esc(c.cardmarketUrl)}" target="_blank" rel="noopener">CM</a>` : ""}
       </td></tr>`;
   }).join("");
-  return `<table><thead><tr><th>Carta</th><th>Offerta min.<br><small class="muted">qualsiasi condizione</small></th><th>Trend</th><th>Media 30g</th><th>7g vs 30g</th><th>Paga al massimo</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+  return `<table><thead><tr><th>Carta</th><th>Trend</th><th>Media 30g</th><th>Paga al massimo</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div class="note"><b>Paga al massimo</b> = il prezzo più alto a cui comprare per guadagnare almeno il 20% netto rivendendo al più basso tra trend e media a 30 giorni, con le commissioni di vendita del riquadro in alto. Il secondo numero è il tetto <b>comprando su Vinted</b>, dove paghi anche la protezione acquisti (0,70 € + 5%) e la spedizione (3 €). «Non rende» = anche regalata, commissioni e spedizione si mangiano tutto.
-      L'offerta minima del listino vale per <b>qualsiasi condizione e lingua</b> (spesso una copia rovinata): non è un prezzo a cui si compra, per questo non se ne calcola il margine. Un trend in calo (7g vs 30g) abbassa il valore nei giorni successivi.</div>`;
+      Il valore è quello di una carta Near Mint: le offerte reali si vedono in Affari (CardTrader) o guardando su Cardmarket.</div>`;
 }
 
 // --- Watchlist ---
@@ -805,16 +799,16 @@ function addWatch(id) {
 }
 function viewWatch() {
   const rows = data.watchlist.map((w, i) => {
-    const c = w.card, b = buyPrice(c);
-    return `<tr><td>${cardCell(c)}</td><td>${eur(b)}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td><td>${maxBuyCell(c)}</td>
+    const c = w.card;
+    return `<tr><td>${cardCell(c)}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td><td>${maxBuyCell(c)}</td>
       <td><input type="number" step="0.1" min="0" value="${w.target}" onchange="data.watchlist[${i}].target=parseFloat(this.value)||0;save();viewWatch()"></td>
       <td><button class="b" onclick="data.watchlist.splice(${i},1);save();viewWatch()">✕</button></td></tr>`;
   }).join("");
   $("#view").innerHTML = `<div class="panel scroll">
     <div class="row" style="margin-bottom:10px"><button class="b p" id="ref" onclick="refreshWatch()">Aggiorna prezzi</button>
     <span class="muted" id="refmsg"></span></div>
-    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Offerta min.<br><small class="muted">qualsiasi condizione</small></th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. L'offerta minima del listino non è un segnale d'acquisto (qualsiasi condizione e lingua).</div>`
+    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note"><b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. </div>`
       : '<div class="msg">Nessuna carta. Usa ★ nei risultati di ricerca.</div>'}</div>`;
 }
 async function refreshWatch() {
@@ -1010,23 +1004,6 @@ function viewInv() {
     <div class="note"><b>Sotto il prezzo minimo ci rimetti</b>: recupera prezzo pagato, spedizione d'acquisto, commissioni e imballaggio della piattaforma scelta in alto. Quando vendi registra <b>l'incasso vero</b>, non la stima: «realizzato meno stimato» è la misura che dice se le occasioni dello scanner sono reali.
       Carte da Cerca: il più basso tra trend e media a 30 giorni di Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
       : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
-}
-
-// --- Calcolatore ---
-function viewCalc() {
-  $("#view").innerHTML = `<div class="panel"><div class="row">
-      <label>Compro a €<input type="number" id="cb" step="0.1" min="0"></label>
-      <label>Rivendo a €<input type="number" id="cs" step="0.1" min="0"></label>
-      <label>ROI minimo %<input type="number" id="cr" step="1" value="20"></label></div>
-    <div id="cout" class="stats" style="margin-top:14px"></div></div>`;
-  const upd = () => {
-    const b = parseFloat($("#cb").value), s = parseFloat($("#cs").value), r = (parseFloat($("#cr").value) || 0) / 100;
-    const n = net(b, s), mb = maxBuy(s, r);
-    $("#cout").innerHTML = `<div><b class="${cls(n?.profit)}">${eur(n?.profit)}</b><span>Profitto netto</span></div>
-      <div><b class="${cls(n?.roi)}">${pct(n?.roi)}</b><span>ROI</span></div>
-      <div><b>${eur(mb)}</b><span>Prezzo max d'acquisto per ROI ${(r * 100).toFixed(0)}%</span></div>`;
-  };
-  ["#cb", "#cs", "#cr"].forEach(id => $(id).oninput = upd); upd();
 }
 
 (async () => {

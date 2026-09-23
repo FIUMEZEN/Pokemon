@@ -10,7 +10,7 @@ App web locale (in italiano) per la compravendita di carte Pokémon: cerca una c
 
 ## File
 - `server.js`: server HTTP + accesso alle fonti dati.
-- `index.html`: tutta l'interfaccia (HTML, CSS e JS in un file). Tab: Perito, Affari, Cerca, Watchlist, Inventario, Calcolatore.
+- `index.html`: tutta l'interfaccia (HTML, CSS e JS in un file). Tab: Perito, Affari, Cerca, Watchlist, Inventario. (Il Calcolatore è stato tolto il 23/09/2026: rifaceva a mano quello che Cerca, Perito e Inventario calcolano da soli sui dati veri della carta.)
 - `data.json`: watchlist e inventario dell'utente (creato dall'app). **Non cancellarlo né riempirlo con dati di prova**: se si fanno test, rimetterlo a `{"watchlist":[],"inventory":[]}`. Prima di ogni sovrascrittura il server ne tiene una copia al giorno in `copie-data/` (30 giorni, fuori da git): è la contabilità degli acquisti e delle vendite.
 - `cache-priceguide.json` (listino Cardmarket, ~15 MB) e `cache-cards.json` (anagrafica carte): cache su disco, rigenerabili.
 
@@ -49,7 +49,7 @@ guadagno = ricavo − costo        ROI = guadagno / costo
 prezzo massimo d'acquisto per un ROI dato = ricavo / (1 + ROI) − spedizione acquisto
 ```
 Esempio (Cardmarket: 5%, spedizioni 1,50 €): compro a 20, rivendo a 30 → costo 21,50, ricavo 27,00, guadagno 5,50 € (+25,6%).
-In «Cerca» e «Watchlist» (22/09/2026) non si calcola più nessun margine: si mostra **«Paga al massimo»** = `maxBuy(sellPrice, ROI 20%)` con le commissioni del riquadro in alto (il tetto per un'offerta trovata altrove), ricalcolato a ogni render (`searchHtml`, non si tiene l'HTML dei risultati); «non rende» se è ≤ 0, «senza prezzo» se mancano trend e avg30. In Watchlist accanto c'è «Il tuo tetto» (`w.target`): proposto all'aggiunta, poi fisso e modificabile. `low` resta visibile come «Offerta min. — qualsiasi condizione», solo informativo: niente margine, niente etichetta «Sotto target», niente valore precompilato in «+ Compro». Accanto compare il tetto **comprando su Vinted**, dove chi compra paga la protezione acquisti (0,70 € + 5%) e la spedizione (3 €): stessi numeri del perito (`VINTED_BUY` in index.html, `vintedBuyerFee`/`SHIP_IN` in server.js).
+In «Cerca» e «Watchlist» (22/09/2026) non si calcola più nessun margine: si mostra **«Paga al massimo»** = `maxBuy(sellPrice, ROI 20%)` con le commissioni del riquadro in alto (il tetto per un'offerta trovata altrove), ricalcolato a ogni render (`searchHtml`, non si tiene l'HTML dei risultati); «non rende» se è ≤ 0, «senza prezzo» se mancano trend e avg30. In Watchlist accanto c'è «Il tuo tetto» (`w.target`): proposto all'aggiunta, poi fisso e modificabile. Le colonne «Offerta min.» (`low`) e «7g vs 30g» sono state **tolte** il 23/09/2026 da Cerca e Watchlist: `low` è rumore misurato e nessuna delle due serviva a decidere. Resta il divieto di reintrodurle in un calcolo. Accanto compare il tetto **comprando su Vinted**, dove chi compra paga la protezione acquisti (0,70 € + 5%) e la spedizione (3 €): stessi numeri del perito (`VINTED_BUY` in index.html, `vintedBuyerFee`/`SHIP_IN` in server.js).
 **Spedizione in vendita (corretto il 23/09/2026):** su Cardmarket, CardTrader, eBay e Vinted la paga il compratore. Il campo si chiama «Costo spedizione per te» e vale **0,30 €** (imballaggio): prima i preset mettevano 1,50-3 €, che sottraeva due volte la stessa spesa. Lo scanner usava già 0. I valori vecchi nel browser si migrano **una sola volta** (`settings.v`), così una scelta voluta non viene sovrascritta.
 Preset piattaforme (commissione %, fissa €, costo per te €): Cardmarket 5/0/0,3; eBay 12,8/0,35/0,3; Vinted 0/0/0,3. Sono valori indicativi, salvati nel `localStorage` del browser.
 
@@ -67,7 +67,7 @@ Obiettivo dell'utente: automatizzare la compravendita. Scelta fatta: **Fase 1 (p
 - **Chiave di join CardTrader ↔ Cardmarket**: il blueprint ha `card_market_ids` (array) = `idProduct` del listino Cardmarket. Questo permette di comprare su CardTrader al prezzo reale e valutare la rivendita al trend Cardmarket.
 - **Sweep completo fattibile**: `GET /marketplace/products?expansion_id=X` restituisce le 25 offerte più economiche per ogni blueprint dell'espansione. ~200 espansioni Pokémon → tutto il mercato in meno di un minuto entro i rate limit.
 - Il token CardTrader **permette di spendere**: va in `cardtrader-token.txt` (mai nel codice, mai in chat).
-- `probe-cardtrader.js`: script di sola lettura che verifica tutte le ipotesi sopra sui dati veri e stampa i primi margini reali. Da lanciare appena c'è il token, **prima** di scrivere l'integrazione definitiva.
+- `probe-cardtrader.js` è stato **cancellato** il 23/09/2026: aveva già fatto il suo lavoro e il suo modello economico (commissioni Cardmarket, solo `trend`, lingue mescolate) era quello che poi abbiamo dimostrato sbagliato. Sta in git se serve rivederlo.
 
 ## Economia reale del mestiere (misurata il 21/09/2026 — LEGGERE PRIMA DI CAMBIARE I CALCOLI)
 Tre trappole misurate sui dati veri. Ognuna faceva sembrare redditizie operazioni in perdita.

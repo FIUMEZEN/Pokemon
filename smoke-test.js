@@ -74,7 +74,7 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     await ev(`window.save = () => {}; data = { watchlist: [], inventory: [] }; 1`);   // parte vuota, mai salvata
 
     console.log("\nTab:");
-    for (const t of ["perito", "deals", "search", "watch", "inv", "calc"]) {
+    for (const t of ["perito", "deals", "search", "watch", "inv"]) {
       const n0 = errors.length;
       await ev(`go(${JSON.stringify(t)}); 1`); await sleep(t === "deals" ? 2500 : 400);
       const len = await ev(`document.querySelector("#view").innerText.length`);
@@ -108,9 +108,9 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     check("risultati ricerca", nCards > 0, `${nCards} carte`);
     if (nCards) {
       const pct0 = await ev(`settings.pct`);
-      const a = await ev(`document.querySelector("#results tbody tr").cells[5].innerText`);
+      const a = await ev(`document.querySelector("#results tbody tr").cells[3].innerText`);
       await ev(`settings.pct = 20; render(); 1`);
-      const b = await ev(`document.querySelector("#results tbody tr").cells[5].innerText`);
+      const b = await ev(`document.querySelector("#results tbody tr").cells[3].innerText`);
       await ev(`settings.pct = ${pct0}; render(); 1`);
       check("«Paga al massimo» segue le commissioni", a !== b || /non rende|senza prezzo/.test(a), `${a} → ${b}`);
       await ev(`addWatch(lastSearch.cards[0].id); 1`); await sleep(200);
@@ -153,11 +153,6 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
       check("il prezzo minimo cambia con la piattaforma", floorCt, "CardTrader (6,47%) più alto di Vinted (0%)");
     }
 
-    console.log("\nCalcolatore:");
-    await ev(`go("calc"); 1`);
-    await ev(`const s = (i, v) => { const e = document.querySelector(i); e.value = v; e.oninput(); }; s("#cb", 20); s("#cs", 30); 1`);
-    const out = await ev(`document.querySelector("#cout").innerText`);
-    check("calcolo di esempio", /[0-9]/.test(out), out.replace(/\n/g, " "));
 
     check("nessun errore JavaScript", errors.length === 0, errors.slice(0, 3).join(" | "));
   } catch (e) {
