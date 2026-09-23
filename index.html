@@ -440,10 +440,11 @@ function appraiseHtml(d) {
           <div style="font-size:18px"><b>${esc(c.name)}</b>${c.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
           <div class="muted">${esc(c.set)} · #${esc(c.number)} · ${esc(c.rarity || "")}</div>
           <div class="stats" style="margin-top:12px">
-            <div><b>${eur(c.value)}</b><span>Valore prudente</span></div>
+            <div><b>${eur(c.value)}</b><span>Valore prudente${c.valueIt != null && c.value === c.valueIt ? " (italiana)" : ""}</span></div>
             <div>${head}</div>
           </div>
-          <div class="note">Il più basso tra trend Cardmarket (${eur(c.trend)}) e media delle vendite a 30 giorni (${eur(c.avg30)}).
+          ${c.valueNote ? `<div class="note warn">${esc(c.valueNote)} <b>Lingua ${esc(c.langBasis || "")}.</b></div>` : ""}
+          <div class="note">Listino: il più basso tra trend Cardmarket (${eur(c.trend)}) e media delle vendite a 30 giorni (${eur(c.avg30)}).
             <a href="${esc(c.cardmarketUrl)}" target="_blank" rel="noopener">Verifica su Cardmarket</a></div>
           ${buy}${resale}
           ${d.resale ? `<div class="note">Guadagno già al netto delle commissioni di vendita (Cardmarket 5%, CardTrader 5,3% + IVA, Vinted 0%). Il valore è quello di una carta Near Mint: se è segnata vale meno.</div>` : ""}

@@ -229,7 +229,8 @@ function nameRanges(text) {
   const pct = (a, p) => a.length ? a[Math.min(a.length - 1, Math.floor(a.length * p))] : null;
 
   return found.map(({ key, hits }) => {
-    const vals = hits.map(h => h.t ?? h.a ?? 0).filter(v => v > 0).sort((a, b) => a - b);
+    // come ovunque nell'app: il piu' prudente tra trend e media a 30 giorni
+    const vals = hits.map(h => (h.t > 0 && h.a > 0) ? Math.min(h.t, h.a) : (h.t ?? h.a ?? 0)).filter(v => v > 0).sort((a, b) => a - b);
     const max = vals[vals.length - 1] ?? null;
     const rich = vals.filter(v => v >= 30).length / (vals.length || 1);
     return {
@@ -581,12 +582,24 @@ const LANGS = [
   ["giapponese", /\b(giappones[ei]|japanese|jap|jpn)\b/i, true],
   ["coreano", /\b(corean[oa]|korean)\b/i, true],
   ["cinese", /\b(cines[ei]|chinese)\b/i, true],
-  ["italiano", /\b(italian[oa]|ita)\b/i, false],
-  ["inglese", /\b(ingles[ei]|english|eng)\b/i, false],
-  ["tedesco", /\b(tedesc[oa]|german|deutsch)\b/i, false],
-  ["francese", /\b(frances[ei]|french)\b/i, false],
-  ["spagnolo", /\b(spagnol[oa]|spanish)\b/i, false],
+  ["italiano", /\b(italian[aeio]|italiane|ita)\b/i, false],
+  ["inglese", /\b(ingles[ei]|inglesi|english|eng)\b/i, false],
+  ["tedesco", /\b(tedesc(?:o|a|hi|he)|german|deutsch)\b/i, false],
+  ["francese", /\b(frances[ei]|francesi|french)\b/i, false],
+  ["spagnolo", /\b(spagnol[aeio]|spagnole|spanish)\b/i, false],
+  ["portoghese", /\b(portoghes[ei]|portuguese)\b/i, false],
 ];
+// QUANTO VALE UNA CARTA ITALIANA (misurato il 23/09/2026 sulle offerte Near Mint di CardTrader).
+// Il listino Cardmarket e' unico per tutte le lingue europee, il mercato no.
+//  - sulle stesse 413 carte presenti in entrambe le lingue: mediana offerte italiane / inglesi
+//    = 0,56 (25o 0,43, 75o 0,78), stabile per fascia di prezzo (0,61 sotto 10 €, 0,53 sopra 30 €);
+//  - rispetto al riferimento Cardmarket: l'offerta italiana piu' bassa ha mediana 0,76 e sta
+//    sotto meta' riferimento nel 21% dei casi (l'inglese nell'1%).
+// Quindi su una carta italiana su cinque il perito gridava "prezzo sotto meta' valore" e su una
+// su venti "probabile falso" mentre il prezzo era quello normale delle italiane.
+// SOLO l'italiano e' misurato: per tedesco, francese, spagnolo e portoghese non si applica
+// nessun fattore (i dati sono troppo pochi e un numero inventato qui fa comprare male).
+const IT_FACTOR = 0.75;
 const priceIn = s => {
   const m = String(s || "").match(/€\s*(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:€|eur\b|euro\b)/i);
   return m ? parseFloat((m[1] || m[2]).replace(",", ".")) : null;
@@ -625,7 +638,7 @@ async function appraise({ text, title, meta, body, url, ask, scan }) {
   const reverse = RX.reverse.test(near);
 
   const out = {
-    ask: price, askAuto, isVinted, lang: lang?.[0] ?? null,
+    ask: price, askAuto, isVinted, lang: lang?.[0] ?? null, langDeclared: lang?.[0] ?? null,
     condition: RX.bad.test(near) ? "usurata" : RX.good.test(near) ? "buona" : null,
     flags, card: null, resale: null, names: [], lot: null,
   };
@@ -782,6 +795,27 @@ function finish(out) {
     const fee = out.isVinted ? +vintedBuyerFee(price).toFixed(2) : 0;
     out.buy = { price, fee, ship: SHIP_IN, total: +(price + fee + SHIP_IN).toFixed(2) };
   }
+  // Il valore di listino vale per una carta inglese; l'italiana vale meno. Se la lingua non e'
+  // dichiarata in un annuncio italiano si usa comunque il valore prudente: sopravvalutare fa
+  // comprare male, sottovalutare fa solo perdere qualche affare.
+  const declared = out.langDeclared || null;
+  const inferred = out.lang && out.lang !== declared ? out.lang : null;     // dedotta dal nome della carta
+  const asianLang = ["giapponese", "coreano", "cinese"].includes(declared || inferred);
+  const italian = !asianLang && (declared || inferred || "italiano") === "italiano";
+  // per le asiatiche il riferimento europeo non vale per niente: lo dice gia' il loro avviso
+  const other = !asianLang && declared && declared !== "italiano" && declared !== "inglese";
+  if (out.card?.value > 0) {
+    out.card.valueFull = out.card.value;
+    out.card.valueIt = +(out.card.value * IT_FACTOR).toFixed(2);
+    out.card.lang = declared || inferred || null;
+    out.card.langBasis = declared ? "dichiarata nell'annuncio" : inferred ? "dedotta dal nome della carta" : "non dichiarata";
+    if (italian) out.card.value = out.card.valueIt;                         // il valore mostrato e' quello prudente
+    out.card.valueNote = italian
+      ? (declared ? "Carta italiana: vale circa tre quarti del prezzo di listino, che è quello delle inglesi."
+        : "Lingua non dichiarata: si usa il valore di una carta italiana (tre quarti del listino). Se è inglese vale " + out.card.valueFull.toFixed(2).replace(".", ",") + " €.")
+      : other ? "Il listino Cardmarket non distingue la lingua: una carta non inglese vale meno, ma quanto non è misurato."
+      : null;
+  }
   const v = out.card?.value;
   // Le stampe asiatiche hanno un altro mercato: il prezzo Cardmarket di riferimento non vale.
   const asian = ["giapponese", "coreano", "cinese"].includes(out.lang);
@@ -795,6 +829,10 @@ function finish(out) {
     const check = !asian && !uncertain;
     if (check && ratio < 0.3) out.flags.unshift({ level: "danger", msg: `Chiedono ${eu(price)} € per una carta che vale ${eu(v)} € (il ${Math.round(ratio * 100)}%). Un prezzo così basso è il segnale più tipico di un falso o di una truffa.` });
     else if (check && ratio < 0.5) out.flags.unshift({ level: "warn", msg: `Prezzo a meno della metà del valore (${Math.round(ratio * 100)}%). Può essere un affare vero, ma controlla bene foto e venditore.` });
+    // prezzo basso solo rispetto al listino (che e' il prezzo delle inglesi): dipende dalla lingua
+    else if (check && out.card?.valueFull > v && price < out.card.valueFull * 0.5) {
+      out.flags.unshift({ level: "info", msg: `Il prezzo è basso per una carta inglese, normale per una italiana. Chiedi al venditore in che lingua è: cambia il valore di circa un terzo.` });
+    }
 
     // Con un allarme serio il guadagno "teorico" NON si mostra: un +1.000 € verde
     // accanto a "probabile falso" e' un invito a cascarci.
