@@ -19,7 +19,9 @@ const META_FILE = path.join(__dirname, "cache-cards.json");
 const GUIDE_FILE = path.join(__dirname, "cache-priceguide.json");
 const TCGDEX = "https://api.tcgdex.net/v2/en";
 const GUIDE_URL = "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json";
-const GUIDE_TTL = 6 * 3600 * 1000;       // Cardmarket lo rigenera una volta al giorno
+const GUIDE_TTL = 6 * 3600 * 1000;       // ogni quanto si CHIEDE a Cardmarket se c'e' un listino nuovo
+const HIST_DIR = path.join(__dirname, "storico-prezzi");   // un file al giorno, compresso
+const HIST_DAYS = 120;
 const MAX_DETAILS = 80;                  // carte per ricerca (una richiesta a TCGdex ciascuna, poi in cache)
 
 const loadJson = (file, def) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return def; } };
@@ -45,14 +47,47 @@ async function getJson(url, { retries = 5, timeout = 30000 } = {}) {
 let guide = null; // { createdAt, fetchedAt, prices: Map<idProduct, {...}> }
 let guideLoading = null;
 
+// Il listino grezzo pesa 15 MB e ha 14 colonne: ne usiamo 6. Si salva solo quello che serve
+// (circa 4 MB), nella stessa forma, cosi' scanner.js e build-catalog.js non cambiano.
+const slimGuide = raw => ({
+  createdAt: raw.createdAt, lastModified: raw.lastModified ?? null,
+  priceGuides: raw.priceGuides.map(g => ({
+    idProduct: g.idProduct, low: g.low, trend: g.trend, avg7: g.avg7, avg30: g.avg30,
+    "trend-holo": g["trend-holo"], "avg30-holo": g["avg30-holo"],
+  })),
+});
+
+// Storico: un file al giorno, compresso, con i soli prezzi di riferimento. Serve a misurare
+// quanto si muovono i prezzi da un giorno all'altro (per ora non lo sappiamo: il listino
+// veniva sovrascritto). ~1 MB al giorno, si tengono 120 giorni.
+function saveHistory(slim) {
+  try {
+    const day = String(slim.createdAt).slice(0, 10);
+    fs.mkdirSync(HIST_DIR, { recursive: true });
+    const file = path.join(HIST_DIR, `prezzi-${day}.json.gz`);
+    if (fs.existsSync(file)) return;
+    // anche le carte con il solo prezzo reverse holo: esistono e vanno seguite
+    const rows = slim.priceGuides.filter(g => g.trend > 0 || g.avg30 > 0 || g["trend-holo"] > 0 || g["avg30-holo"] > 0)
+      .map(g => [g.idProduct, g.trend ?? 0, g.avg30 ?? 0, g["trend-holo"] ?? 0, g["avg30-holo"] ?? 0]);
+    fs.writeFileSync(file + ".tmp", require("zlib").gzipSync(JSON.stringify({ createdAt: slim.createdAt, rows })));
+    fs.renameSync(file + ".tmp", file);              // mai un file a meta': altrimenti resta corrotto per sempre
+    const limit = Date.now() - HIST_DAYS * 86400000;
+    for (const f of fs.readdirSync(HIST_DIR)) {
+      const d = Date.parse(f.slice(7, 17));
+      if (!isNaN(d) && d < limit) fs.unlinkSync(path.join(HIST_DIR, f));
+    }
+    console.log(`Storico prezzi: salvato ${day} (${rows.length} carte).`);
+  } catch (e) { console.log("Storico prezzi non salvato:", e.message); }
+}
+
 function indexGuide(raw, fetchedAt) {
   const prices = new Map();
   for (const g of raw.priceGuides) prices.set(g.idProduct, {
-    avg: g.avg, low: g.low, trend: g.trend, avg1: g.avg1, avg7: g.avg7, avg30: g.avg30,
+    low: g.low, trend: g.trend, avg7: g.avg7, avg30: g.avg30,
     // le reverse holo stanno nello stesso prodotto, nelle colonne "-holo"
     trendHolo: g["trend-holo"], avg30Holo: g["avg30-holo"],
   });
-  return { createdAt: raw.createdAt, fetchedAt, prices };
+  return { createdAt: raw.createdAt, lastModified: raw.lastModified ?? null, fetchedAt, prices };
 }
 
 async function ensureGuide() {
@@ -60,13 +95,39 @@ async function ensureGuide() {
   if (!guideLoading) {
     guideLoading = (async () => {
       try {
-        const raw = await getJson(GUIDE_URL, { retries: 3, timeout: 120000 });
-        fs.writeFileSync(GUIDE_FILE, JSON.stringify(raw));
-        guide = indexGuide(raw, Date.now());
+        // Cardmarket rigenera il listino una volta al giorno e risponde 304 se non e' cambiato:
+        // si chiede con la data di quello che abbiamo e si scaricano i 15 MB solo se serve.
+        const have = guide?.lastModified || loadJson(GUIDE_FILE, null)?.lastModified;
+        const r = await fetch(GUIDE_URL, {
+          headers: { "User-Agent": "pokemon-trader/1.0", ...(have ? { "If-Modified-Since": have } : {}) },
+          signal: AbortSignal.timeout(180000),
+        });
+        if (r.status === 304) {                       // listino invariato: si tiene quello in cache
+          const old = loadJson(GUIDE_FILE, null);
+          // se la cache nel frattempo e' sparita o e' corrotta, si riscarica senza la condizione
+          if (!old?.priceGuides?.length) throw Object.assign(new Error("cache mancante"), { retryFull: true });
+          guide = indexGuide(old, Date.now());
+          saveHistory(old);                           // recupera lo storico del giorno, se manca
+        } else if (r.ok) {
+          const slim = slimGuide({ ...await r.json(), lastModified: r.headers.get("last-modified") });
+          fs.writeFileSync(GUIDE_FILE + ".tmp", JSON.stringify(slim));
+          fs.renameSync(GUIDE_FILE + ".tmp", GUIDE_FILE);
+          saveHistory(slim);
+          guide = indexGuide(slim, Date.now());
+        } else throw new Error("HTTP " + r.status);
       } catch (e) {
+        if (e.retryFull) {                            // 304 ma senza cache valida: riscarico tutto
+          const raw = await getJson(GUIDE_URL, { retries: 2, timeout: 180000 });
+          const slim = slimGuide(raw);
+          fs.writeFileSync(GUIDE_FILE + ".tmp", JSON.stringify(slim));
+          fs.renameSync(GUIDE_FILE + ".tmp", GUIDE_FILE);
+          saveHistory(slim);
+          guide = indexGuide(slim, Date.now());
+        }
         if (!guide) { // rete assente: riparte dall'ultimo listino salvato, se c'e'
           const old = loadJson(GUIDE_FILE, null);
-          if (old) guide = indexGuide(old, 0);
+          // si riprova tra 5 minuti, non a ogni richiesta: durante un blackout l'app resta usabile
+          if (old) guide = indexGuide(old, Date.now() - GUIDE_TTL + 5 * 60 * 1000);
         }
         if (!guide) throw e;
       } finally { guideLoading = null; }
@@ -102,13 +163,13 @@ async function cardMeta(id) {
 
 function toCard(m, g) {
   const p = m.idProduct != null ? g.prices.get(m.idProduct) : null;
-  const src = p || (m.fallback && { avg: m.fallback.avg, low: m.fallback.low, trend: m.fallback.trend, avg1: m.fallback.avg1, avg7: m.fallback.avg7, avg30: m.fallback.avg30 });
+  const src = p || (m.fallback && { low: m.fallback.low, trend: m.fallback.trend, avg7: m.fallback.avg7, avg30: m.fallback.avg30 });
   return {
     id: m.id, name: m.name, number: m.number, rarity: m.rarity, set: m.set, image: m.image,
     cardmarketUrl: `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${encodeURIComponent(`${m.name} ${m.number}`)}`,
     idProduct: m.idProduct,
     updated: p ? g.createdAt.slice(0, 10).replace(/-/g, "/") : (m.fallback?.date || "").slice(0, 10).replace(/-/g, "/") || undefined,
-    cm: src ? { trend: src.trend, low: src.low, avg: src.avg, avg1: src.avg1, avg7: src.avg7, avg30: src.avg30 } : { },
+    cm: src ? { trend: src.trend, low: src.low, avg7: src.avg7, avg30: src.avg30 } : { },
   };
 }
 

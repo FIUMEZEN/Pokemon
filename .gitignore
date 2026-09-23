@@ -10,3 +10,6 @@ catalog.json
 opportunities.json
 deals-log.json
 *.tmp
+
+# Storico prezzi: un file al giorno, NON riscaricabile se lo cancelli (Cardmarket pubblica solo l'ultimo listino)
+storico-prezzi/
