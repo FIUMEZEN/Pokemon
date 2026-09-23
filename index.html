@@ -591,7 +591,7 @@ function dealCard(o) {
   return `<div class="deal${risky ? " risky" : ""}">
     <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
       ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
-    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}${langTag(o)} <b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
+    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}${data.watchlist.some(w => w.card?.idProduct === o.cmId) ? '<span class="tag">★ SEGUITA</span> ' : ""}${langTag(o)} <b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
     <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
     <div class="small muted">Near Mint · ${o.depth} offerte in ${esc(LANG_NAME[o.lang] || o.lang || "?")}</div>
     <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b> <span class="small muted">+ ${eur(shipOf(o))} sped.</span></div>
@@ -797,18 +797,46 @@ function addWatch(id) {
   }
   go("watch");
 }
-function viewWatch() {
+// Offerte in Affari per una carta seguita: si legano per id Cardmarket, l'unica chiave comune
+// tra il catalogo TCGdex della ricerca e i blueprint di CardTrader.
+function dealsFor(c) {
+  const id = c?.idProduct;
+  if (id == null) return [];
+  return (dealsData?.opportunities || []).filter(o => o.cmId === id && !o.suspect && !o.lonely).sort((a, b) => a.buy - b.buy);
+}
+function watchCell(w) {
+  const found = dealsFor(w.card);
+  if (!found.length) return '<span class="small muted">nessuna offerta</span>';
+  const best = found[0];
+  const sotto = w.target > 0 && best.buy <= w.target;
+  return `<a href="${esc(best.url)}" target="_blank" rel="noopener"><b>${eur(best.buy)}</b></a>
+    <div class="small muted">${LANG_FLAG[best.lang] || ""} ${esc(LANG_NAME[best.lang] || best.lang || "")}${best.reverse ? " · reverse" : ""}${best.depth > 1 ? ` · ${best.depth} offerte in questa lingua` : ""}
+    ${best.profitFast > 0 ? ` · +${eur(best.profitFast)} vendendo subito` : ""}</div>
+    ${sotto ? '<span class="tag" style="background:var(--acc)">SOTTO IL TUO TETTO</span>' : ""}`;
+}
+async function viewWatch() {
+  // le occasioni servono anche qui: si caricano una volta sola
+  let errore = "";
+  // le occasioni si ricaricano quando lo scanner ha finito un giro nuovo, non una volta sola
+  if (data.watchlist.length && (!dealsData || Date.parse(dealsData.generatedAt || 0) < (lastScan.lastScanAt || 0))) {
+    try { dealsData = await api("/api/opportunities"); } catch (e) { errore = e.message; }
+  }
+  if (tab !== "watch") return;                     // nel frattempo puoi aver cambiato scheda
+  const attive = data.watchlist.filter(w => dealsFor(w.card).length).length;
   const rows = data.watchlist.map((w, i) => {
     const c = w.card;
     return `<tr><td>${cardCell(c)}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td><td>${maxBuyCell(c)}</td>
+      <td class="l">${watchCell(w)}</td>
       <td><input type="number" step="0.1" min="0" value="${w.target}" onchange="data.watchlist[${i}].target=parseFloat(this.value)||0;save();viewWatch()"></td>
       <td><button class="b" onclick="data.watchlist.splice(${i},1);save();viewWatch()">✕</button></td></tr>`;
   }).join("");
   $("#view").innerHTML = `<div class="panel scroll">
-    <div class="row" style="margin-bottom:10px"><button class="b p" id="ref" onclick="refreshWatch()">Aggiorna prezzi</button>
-    <span class="muted" id="refmsg"></span></div>
-    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. </div>`
+    <div class="row" style="margin-bottom:10px;align-items:center"><button class="b p" id="ref" onclick="refreshWatch()">Aggiorna prezzi</button>
+    <span class="muted" id="refmsg"></span>
+    ${errore ? `<span class="small bad">Occasioni non caricate: ${esc(errore)}</span>` : ""}${!errore && data.watchlist.length ? `<span class="small ${attive ? "good" : "muted"}">${attive ? `${attive} di ${data.watchlist.length} in vendita ora` : "nessuna delle carte che segui è in vendita adesso"}</span>` : ""}</div>
+    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th class="l">In vendita ora su CardTrader</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note"><b>In vendita ora</b> = offerte trovate dallo scanner per questa carta, in qualsiasi lingua: il prezzo è quello dell'offerta più bassa. L'etichetta compare quando scende sotto il tetto che hai messo tu.
+      <b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. </div>`
       : '<div class="msg">Nessuna carta. Usa ★ nei risultati di ricerca.</div>'}</div>`;
 }
 async function refreshWatch() {

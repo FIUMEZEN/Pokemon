@@ -163,7 +163,7 @@ function analyse(exp, blueprints, products, cm) {
       out.push({
         name: b.name, version: b.version || null, expansion: exp.name, code: exp.code,
         reverse: rev, lang, buy: +best.v.toFixed(2), market: +market.toFixed(2),
-        cmTrend: cmRef ?? null, sell: +sell.toFixed(2),
+        cmId, cmTrend: cmRef ?? null, sell: +sell.toFixed(2),
         sellFast: +sellFast.toFixed(2), profitFast: +profitFast.toFixed(2),
         profit: +profit.toFixed(2), roi: +roi.toFixed(3), depth: g.length, qty: best.qty,
         suspect: roi > 1.5,                        // guadagni cosi' alti sono quasi sempre dati sbagliati

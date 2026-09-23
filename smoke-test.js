@@ -115,6 +115,17 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
       check("«Paga al massimo» segue le commissioni", a !== b || /non rende|senza prezzo/.test(a), `${a} → ${b}`);
       await ev(`addWatch(lastSearch.cards[0].id); 1`); await sleep(200);
       check("watchlist", await ev(`data.watchlist.length === 1 && /Paga al massimo oggi/.test(document.querySelector("#view").innerText)`));
+      // la watchlist deve dire se una carta seguita e' in vendita adesso su CardTrader
+      const legata = await ev(`(async () => {
+        const o = (dealsData?.opportunities || []).find(x => x.cmId);
+        if (!o) return null;
+        data.watchlist[0].card.idProduct = o.cmId; data.watchlist[0].target = o.buy + 1;
+        await viewWatch();
+        const t = document.querySelector("#view").innerText;
+        return { nome: o.name, prezzo: o.buy, inVendita: /in vendita ora/i.test(t), sottoTetto: /SOTTO IL TUO TETTO/.test(t) };
+      })()`);
+      check("watchlist collegata alle occasioni", !!legata && legata.inVendita && legata.sottoTetto,
+        legata ? `${legata.nome} a ${legata.prezzo} €` : "nessuna occasione con id Cardmarket");
       await ev(`__ans = ["2,50"]; addInv(lastSearch.cards[0].id); 1`); await sleep(200);
       const cercaInv = await ev(`data.inventory.find(it => !it.src) || null`);
       check("«+ Compro» con virgola e senza valore precompilato", cercaInv?.buy === 2.5 && (await ev(`__prompts.filter(p => /Prezzo pagato/.test(p.msg || "")).at(-1)?.def`)) === "", cercaInv ? `buy ${cercaInv.buy}` : "");
