@@ -1022,6 +1022,8 @@ http.createServer(async (req, res) => {
       if (u.pathname === "/api/card") return send(res, 200, await getCard(u.searchParams.get("id")));
       if (u.pathname === "/api/data") return send(res, 200, loadJson(DATA_FILE, { watchlist: [], inventory: [] }));
       if (u.pathname === "/api/opportunities") return send(res, 200, loadJson(OPP_FILE, null) ?? { missing: true });
+      // fotografia del mercato delle carte in magazzino: la scrive scanner.js nel giro completo
+      if (u.pathname === "/api/market") return send(res, 200, loadJson(path.join(__dirname, "cache-market.json"), null) ?? { missing: true });
       if (u.pathname === "/api/scan") return send(res, 200, scanStatus());
     } else if (req.method === "POST" && u.pathname === "/api/scan") {
       return send(res, 200, startScan());

@@ -5,6 +5,7 @@
 //   node scanner.js            scansione completa (tutte le espansioni Pokemon)
 //   node scanner.js ssp evs bs solo queste espansioni (codici)
 //   node scanner.js --max 60   limite di spesa per carta, in euro
+//   node scanner.js teu --mercato  aggiorna anche i prezzi di vendita delle carte in magazzino
 //
 // Scrive opportunities.json, che l'app legge nella tab "Affari", e deals-log.json (diario:
 // quanto resta in vendita ogni occasione, per misurare se i segnali sono veri senza comprare).
@@ -17,6 +18,9 @@ const GAME_POKEMON = 5;
 const TOKEN = fs.readFileSync(path.join(__dirname, "cardtrader-token.txt"), "utf8").trim();
 const OUT = path.join(__dirname, "opportunities.json");
 const LOG_FILE = path.join(__dirname, "deals-log.json");
+const DATA_FILE = path.join(__dirname, "data.json");          // inventario dell'utente (sola lettura)
+const MARKET_FILE = path.join(__dirname, "cache-market.json"); // fotografia del mercato delle sue carte
+const ME_FILE = path.join(__dirname, "cardtrader-username.txt"); // il tuo nome utente, se vendi anche tu
 const GUIDE_FILE = path.join(__dirname, "cache-priceguide.json");
 
 // --- regole di selezione -------------------------------------------------
@@ -324,6 +328,10 @@ function analyse(exp, blueprints, products, cm) {
     opportunities: found, bundles,
   }, null, 1));
 
+  // solo nel giro completo (una volta all'ora): poche carte, una richiesta ciascuna.
+  // "--mercato" la forza anche in un giro parziale, per provarla.
+  if (!partial || args.includes("--mercato")) await snapshotInventory(cm);
+
   console.log(`\n\nTrovate ${found.length} occasioni (${fresh} nuove). Salvate in opportunities.json\n`);
   console.log("Le migliori 20:");
   for (const f of found.slice(0, 20)) {
@@ -454,4 +462,52 @@ function shipCost(methods, subtotal, n) {
     if (!best || eur < best.cost) best = { cost: eur, name: m.name, tracked: m.tracked, unknown: false };
   }
   return best || { cost: CFG.shipUnknown, name: null, tracked: null, unknown: true };
+}
+
+// --- mercato delle carte che hai in magazzino ------------------------------
+// Serve a suggerire a che prezzo metterle in vendita. Lo fa lo scanner, non il server: le
+// chiamate a CardTrader devono restare in un posto solo, con lo stesso ritmo blando, altrimenti
+// Cloudflare ci blocca. Una richiesta per carta, solo nel giro completo (una volta all'ora).
+async function snapshotInventory(cm) {
+  const inv = (loadJson(DATA_FILE, null)?.inventory || []).filter(it => !it.sold);
+  if (!inv.length) return;
+  const me = (() => { try { return fs.readFileSync(ME_FILE, "utf8").trim().toLowerCase(); } catch { return ""; } })();
+  // le carte da Cerca hanno solo l'id Cardmarket: si risale al blueprint dalla cache
+  const want = [];
+  for (const it of inv) {
+    // solo le carte comprate da Affari: di quelle sappiamo lingua e reverse, che sono il mercato.
+    // Per le carte aggiunte da Cerca la lingua non e' registrata e la fotografia sarebbe inventata.
+    const bp = it.ct?.blueprintId;
+    if (!bp || !it.ct?.lang) continue;
+    const lang = it.ct.lang, rev = !!it.ct.reverse;
+    const key = `${bp}|${lang}|${rev}`;
+    if (!want.some(w => w.key === key)) want.push({ key, bp, lang, rev });
+  }
+  if (!want.length) return;
+  const out = { at: new Date().toISOString(), me: !!me, cards: {} };
+  let letti = 0;
+  for (const w of want.slice(0, 50)) {
+    try {
+      const prods = await get(`/marketplace/products?blueprint_id=${w.bp}`, 2);
+      const list = Object.values(prods || {})[0] || [];
+      const nm = list
+        .filter(p => p.properties_hash?.condition === "Near Mint" && p.price_currency === "EUR" && !p.graded && !p.on_vacation
+          && !p.properties_hash?.altered && !p.properties_hash?.signed
+          && p.properties_hash?.pokemon_language === w.lang && !!p.properties_hash?.pokemon_reverse === w.rev)
+        .map(p => ({ v: p.price_cents / 100, seller: (p.user?.username || "").toLowerCase() }))
+        .sort((a, b) => a.v - b.v);
+      const altrui = nm.filter(p => !me || p.seller !== me);     // la tua copia non e' concorrenza
+      const prezzi = altrui.map(p => p.v);
+      out.cards[w.key] = {
+        n: altrui.length, mie: nm.length - altrui.length,
+        low: altrui[0]?.v ?? null, second: altrui[1]?.v ?? null,
+        median: prezzi.length ? median(prezzi) : null,
+      };
+      letti++;
+    } catch { /* una carta che non si legge non ferma il giro */ }
+    await sleep(200);
+  }
+  fs.writeFileSync(MARKET_FILE + ".tmp", JSON.stringify(out));
+  fs.renameSync(MARKET_FILE + ".tmp", MARKET_FILE);
+  console.log(`\nMercato delle tue carte: ${letti} su ${want.length} lette.`);
 }

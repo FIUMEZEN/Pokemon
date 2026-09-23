@@ -16,3 +16,6 @@ storico-prezzi/
 
 # Copie di sicurezza di data.json (dati personali)
 copie-data/
+
+cache-market.json
+cardtrader-username.txt

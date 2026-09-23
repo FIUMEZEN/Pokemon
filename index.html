@@ -909,6 +909,24 @@ async function refreshInv() {
   if (tab === "inv") viewInv();
 }
 // --- banco di vendita ---------------------------------------------------------
+// Fotografia del mercato delle tue carte, scattata dallo scanner nel giro completo (ogni ora).
+let marketData = null, marketLoading = false, marketTry = 0;
+const marketKey = it => it.ct?.blueprintId ? `${it.ct.blueprintId}|${it.ct.lang || "it"}|${!!it.ct.reverse}` : null;
+function marketOf(it) {
+  const k = marketKey(it);
+  return k && marketData?.cards ? marketData.cards[k] || null : null;
+}
+// Due prezzi, entrambi limitati dal valore prudente (il riferimento Cardmarket):
+//  - VELOCE: un centesimo sotto l'offerta piu' bassa degli altri, per vendere in giornata;
+//  - PAZIENTE: la mediana delle altre offerte, aspettando che le piu' basse si esauriscano.
+function sellPrices(it) {
+  const m = marketOf(it);
+  if (!m || !m.n) return null;
+  const cap = invRef(it) ?? Infinity;      // non si consiglia mai un prezzo sopra il valore prudente
+  const veloce = m.low != null ? Math.min(Math.max(m.low - 0.01, 0.01), cap) : null;
+  const paziente = m.median != null ? Math.min(m.median, cap) : null;
+  return { veloce, paziente, n: m.n, mie: m.mie, low: m.low };
+}
 // Prezzo sotto cui ci rimetti: recupera quello che hai speso, le commissioni della piattaforma
 // e quello che ti costa spedire. La spedizione d'acquisto e' gia' spesa, ma va recuperata
 // perche' il conto dell'operazione torni.
@@ -929,11 +947,13 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 
 function listCard(i) {
   const it = data.inventory[i];
-  const floor = floorPrice(it), ref = invRef(it);
+  const ref = invRef(it);
   const plat = prompt(`Dove la metti in vendita?\n(${Object.keys(PLATFORMS).filter(p => p !== "Personalizzata").join(", ")}, CardTrader, o scrivi altro)`, it.listing?.platform || (isCt(it) ? "CardTrader" : settings.plat));
   if (!plat) return;
-  const sug = Math.max(floor * 1.1, ref ?? 0);
-  const price = num(prompt(`A che prezzo? (€)\nSotto ${eur(floor)} ci rimetti. Valore stimato oggi: ${eur(ref)}`, sug.toFixed(2)));
+  const floor = floorPrice(it, plat.trim());        // commissioni della piattaforma scelta adesso
+  const sp = sellPrices(it);
+  const sug = Math.max(floor, sp?.veloce ?? ref ?? 0);        // mai sotto il prezzo minimo
+  const price = num(prompt(`A che prezzo? (€)\nSotto ${eur(floor)} ci rimetti.${sp ? ` Per vendere subito: ${eur(sp.veloce)} · con calma: ${eur(sp.paziente)}` : ` Valore stimato oggi: ${eur(ref)}`}`, sug.toFixed(2)));
   if (isNaN(price)) return;
   it.listing = { platform: plat.trim(), price, at: new Date().toISOString(), drops: [] };
   save(); viewInv();
@@ -965,6 +985,12 @@ function removeInv(i) {
 
 function viewInv() {
   if (!invLoading && invStale() && Date.now() - invTry > 60000) { invTry = Date.now(); refreshInv(); return; }
+  // La fotografia del mercato non dipende dai prezzi vivi: si carica da sola. Se il server non
+  // risponde si riprova al massimo una volta al minuto, non a ogni disegno della pagina.
+  if (!marketData && !marketLoading && Date.now() - marketTry > 60000 && data.inventory.some(it => !it.sold)) {
+    marketTry = Date.now(); marketLoading = true;
+    api("/api/market").then(m => { marketData = m; }).catch(() => {}).then(() => { marketLoading = false; if (tab === "inv") viewInv(); });
+  }
   let invested = 0, value = 0, realized = 0;
   const rows = data.inventory.map((it, i) => {
     const cost = it.buy + it.ship;
@@ -1000,8 +1026,13 @@ function viewInv() {
              <button class="b" onclick="sell(${i})">Venduta</button></div>`;
       const fermo = inStock != null && inStock >= 30 && !it.listing
         ? `<div class="small warn">Ferma in magazzino da ${inStock} giorni e non è in vendita</div>` : "";
+      const sp = sellPrices(it);
+      // un prezzo consigliato sotto il minimo e' una perdita: va detto, non nascosto
+      const perdita = sp && sp.veloce != null && sp.veloce < floor;
+      const consigli = sp ? `<div class="small">Per venderla: <b class="${perdita ? "bad" : ""}">${eur(sp.veloce)}</b> subito (sotto l'offerta più bassa degli altri, ${eur(sp.low)})${perdita ? " — <b class=\"bad\">ci rimetti</b>" : ""}${sp.paziente ? ` · <b class="${sp.paziente < floor ? "bad" : ""}">${eur(sp.paziente)}</b> con calma` : ""}
+        <span class="muted">${sp.n} ${sp.n === 1 ? "offerta" : "offerte"} come la tua${sp.mie ? ` (${sp.mie} tua)` : ""}${marketData?.at ? ", mercato di " + ago(Date.now() - Date.parse(marketData.at)) : ""}</span></div>` : "";
       status = `Vale ~${eur(ref)}${snap} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
-        <div class="small muted">Sotto ${eur(floor)} ci rimetti${inStock != null ? ` · in magazzino da ${inStock} ${inStock === 1 ? "giorno" : "giorni"}` : ""}</div>${was}${fermo}${vendita}`;
+        ${consigli}<div class="small muted">Sotto ${eur(floor)} ci rimetti${inStock != null ? ` · in magazzino da ${inStock} ${inStock === 1 ? "giorno" : "giorni"}` : ""}</div>${was}${fermo}${vendita}`;
     }
     return `<tr><td>${invCell(it)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
       <td><button class="b" onclick="removeInv(${i})">✕</button></td></tr>`;
