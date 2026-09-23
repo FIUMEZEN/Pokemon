@@ -13,3 +13,6 @@ deals-log.json
 
 # Storico prezzi: un file al giorno, NON riscaricabile se lo cancelli (Cardmarket pubblica solo l'ultimo listino)
 storico-prezzi/
+
+# Copie di sicurezza di data.json (dati personali)
+copie-data/

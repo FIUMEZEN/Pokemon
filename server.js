@@ -833,6 +833,7 @@ async function appraise({ text, title, meta, body, url, ask, scan }) {
     if (r) {
       const m = await cardMeta(r.best.id);
       await build(r.best.id, m.number ? String(m.number) : null, r.best.lang);
+      if (r.alternatives > 1 && out.card) out.card.uncertain = true;   // potrebbe essere un'altra carta: non si calcola nulla su di lei
       flag(r.alternatives > 1 ? "warn" : "info", r.alternatives > 1
         ? `Riconosciuta da nome ed espansione, ma nel set ci sono ${r.alternatives} carte con questo nome: senza il numero potrebbe essere un'altra. Chiedilo al venditore.`
         : "Riconosciuta da nome ed espansione, senza numero di collezione: controlla nella foto che sia proprio questa.");
@@ -915,6 +916,26 @@ function finish(out) {
         : "Prezzo alto per un lotto: stai pagando la speranza di carte rare. Guarda bene le foto prima.";
   }
   return out;
+}
+
+// data.json contiene acquisti e vendite: se si corrompe sparisce la contabilita'. Prima di
+// sovrascriverlo si tiene una copia del giorno (la prima scrittura di ogni giornata), 30 giorni.
+const BACKUP_DIR = path.join(__dirname, "copie-data");
+function backupData() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return;
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    // giorno locale, non UTC: altrimenti in Italia la copia "del giorno" cambia all'una di notte
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const file = path.join(BACKUP_DIR, `data-${day}.json`);
+    if (!fs.existsSync(file)) fs.copyFileSync(DATA_FILE, file);
+    const limit = Date.now() - 30 * 86400000;
+    for (const f of fs.readdirSync(BACKUP_DIR)) {
+      const d = Date.parse(f.slice(5, 15));
+      if (!isNaN(d) && d < limit) fs.unlinkSync(path.join(BACKUP_DIR, f));
+    }
+  } catch (e) { console.log("Copia di data.json non riuscita:", e.message); }
 }
 
 // ---------- scansioni "Affari": automatiche finche' il server e' acceso ----------
@@ -1017,6 +1038,7 @@ http.createServer(async (req, res) => {
     } else if (req.method === "PUT" && u.pathname === "/api/data") {
       const body = JSON.parse(await readBody(req));
       if (!Array.isArray(body.watchlist) || !Array.isArray(body.inventory)) return send(res, 400, { error: "formato non valido" });
+      backupData();                                  // prima di sovrascrivere: una copia al giorno
       fs.writeFileSync(DATA_FILE + ".tmp", JSON.stringify({ watchlist: body.watchlist, inventory: body.inventory }, null, 2));
       fs.renameSync(DATA_FILE + ".tmp", DATA_FILE);
       return send(res, 200, { ok: true });

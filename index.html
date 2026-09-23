@@ -72,7 +72,7 @@
       </label>
       <label>Commissione %<input type="number" id="feePct" step="0.1" min="0"></label>
       <label>Fissa €<input type="number" id="feeFix" step="0.05" min="0"></label>
-      <label>Spedizione vendita €<input type="number" id="shipOut" step="0.1" min="0"></label>
+      <label>Costo spedizione per te €<input type="number" id="shipOut" step="0.1" min="0" title="La spedizione la paga il compratore: qui va solo quello che resta a te, cioè l'imballaggio"></label>
       <label>Spedizione acquisto €<input type="number" id="shipIn" step="0.1" min="0"></label>
     </div>
     <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. «Paga al massimo» in Cerca e Watchlist, l'inventario delle carte da Cerca e il calcolatore li usano tutti.</div>
@@ -96,14 +96,24 @@ const cls = n => n > 0 ? "good" : n < 0 ? "bad" : "muted";
 const num = s => parseFloat(String(s ?? "").replace(",", "."));
 
 const PLATFORMS = {
-  "Cardmarket":      { pct: 5,   fix: 0,    out: 1.5 },
-  "eBay":            { pct: 12.8, fix: 0.35, out: 3 },
-  "Vinted":          { pct: 0,   fix: 0,    out: 2.5 },
+  "Cardmarket":      { pct: 5,   fix: 0,    out: 0.3 },
+  "eBay":            { pct: 12.8, fix: 0.35, out: 0.3 },
+  "Vinted":          { pct: 0,   fix: 0,    out: 0.3 },
   "Vendita diretta": { pct: 0,   fix: 0,    out: 0 },
   "Personalizzata":  null,
 };
-let settings = { plat: "Cardmarket", pct: 5, fix: 0, out: 1.5, inn: 1.5 };
+// "out" = quanto costa a TE spedire la carta venduta. Su Cardmarket, CardTrader, eBay e Vinted
+// la spedizione la paga il compratore: al venditore resta l'imballaggio (bustina, cartoncino,
+// busta imbottita). Lo scanner usa 0 per lo stesso motivo.
+let settings = { plat: "Cardmarket", pct: 5, fix: 0, out: 0.3, inn: 1.5 };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("settings") || "{}")); } catch {}
+// I vecchi default della spedizione in vendita (1,50 / 2,50 / 3) non erano una scelta: si aggiornano
+// una volta sola. Dopo, quello che scrivi tu resta tuo, anche se coincide con un vecchio default.
+if (!settings.v) {
+  if ([1.5, 2.5, 3].includes(settings.out)) settings.out = 0.3;
+  settings.v = 2;
+  try { localStorage.setItem("settings", JSON.stringify(settings)); } catch {}
+}
 
 let data = { watchlist: [], inventory: [] };
 let tab = "search";
@@ -124,6 +134,13 @@ const buyPrice = c => c.cm.low;
 // rivendita prudente: il piu' basso tra trend e media a 30 giorni, come scanner, perito e inventario
 const sellPrice = c => { const r = [c.cm.trend, c.cm.avg30].filter(x => x > 0); return r.length ? Math.min(...r) : null; };
 const momentum = c => c.cm.avg7 && c.cm.avg30 ? c.cm.avg7 / c.cm.avg30 - 1 : null;
+// Comprando su Vinted il compratore paga la protezione acquisti (0,70 € + 5%) piu' la spedizione:
+// il prezzo massimo da offrire e' piu' basso. Stessi valori del perito in server.js.
+const VINTED_BUY = { fix: 0.7, pct: 0.05, ship: 3 };
+function maxBuyVinted(sell, roi = 0.2, s = settings) {
+  const mb = maxBuy(sell, roi, { ...s, inn: 0 });      // il tetto senza spedizione d'acquisto
+  return mb == null ? null : (mb - VINTED_BUY.fix - VINTED_BUY.ship) / (1 + VINTED_BUY.pct);
+}
 // Prezzo massimo d'acquisto per ottenere `roi` minimo rivendendo a `sell`
 function maxBuy(sell, roi = 0.2, s = settings) {
   if (sell == null) return null;
@@ -702,8 +719,9 @@ function invName(it) { return isCt(it) ? it.ct.name : it.card.name; }
 function invRef(it) {
   if (!isCt(it)) return sellPrice(it.card);
   const live = it.live?.ref, est = it.est?.sellFast;
-  // il listino Cardmarket è unico per tutte le lingue: su una carta non inglese è un tetto ottimista
-  if (live != null && est != null && it.ct?.lang && it.ct.lang !== "en") return Math.min(live, est);
+  // Il listino Cardmarket non distingue la lingua ed è più alto del prezzo a cui venderesti subito:
+  // non si supera mai la stima che lo scanner faceva sul mercato di quella carta.
+  if (live != null && est != null) return Math.min(live, est);
   return live ?? est;
 }
 const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }); };
@@ -750,7 +768,10 @@ const searchHtml = () => resultsHtml(lastSearch.cards) + lastSearch.extra;
 // cella «Paga al massimo»: senza prezzo di riferimento e «non rende» sono due cose diverse
 function maxBuyCell(c) {
   const s = sellPrice(c), mb = maxBuy(s);
-  return s == null ? '<span class="muted">senza prezzo</span>' : mb > 0 ? `<b>${eur(mb)}</b>` : '<span class="muted">non rende</span>';
+  if (s == null) return '<span class="muted">senza prezzo</span>';
+  if (!(mb > 0)) return '<span class="muted">non rende</span>';
+  const v = maxBuyVinted(s);
+  return `<b>${eur(mb)}</b>${v > 0 ? `<small class="muted"><br>Vinted ${eur(v)}</small>` : '<small class="muted"><br>su Vinted non rende</small>'}`;
 }
 function resultsHtml(cards) {
   if (!cards.length) return '<div class="msg">Nessun risultato.</div>';
@@ -769,7 +790,7 @@ function resultsHtml(cards) {
       </td></tr>`;
   }).join("");
   return `<table><thead><tr><th>Carta</th><th>Offerta min.<br><small class="muted">qualsiasi condizione</small></th><th>Trend</th><th>Media 30g</th><th>7g vs 30g</th><th>Paga al massimo</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>Paga al massimo</b> = il prezzo più alto a cui comprare (su Vinted, in fiera, da un privato) per guadagnare almeno il 20% netto rivendendo al più basso tra trend e media a 30 giorni, con le commissioni del riquadro in alto. «Non rende» = anche regalata, commissioni e spedizione si mangiano tutto.
+    <div class="note"><b>Paga al massimo</b> = il prezzo più alto a cui comprare per guadagnare almeno il 20% netto rivendendo al più basso tra trend e media a 30 giorni, con le commissioni di vendita del riquadro in alto. Il secondo numero è il tetto <b>comprando su Vinted</b>, dove paghi anche la protezione acquisti (0,70 € + 5%) e la spedizione (3 €). «Non rende» = anche regalata, commissioni e spedizione si mangiano tutto.
       L'offerta minima del listino vale per <b>qualsiasi condizione e lingua</b> (spesso una copia rovinata): non è un prezzo a cui si compra, per questo non se ne calcola il margine. Un trend in calo (7g vs 30g) abbassa il valore nei giorni successivi.</div>`;
 }
 
@@ -862,7 +883,10 @@ function viewInv() {
       invested += cost; value += ref ?? 0;
       // le carte da Affari si valutano come le valutava lo scanner: vendita su CardTrader (5,3% + IVA)
       const n = net(it.buy, ref, isCt(it) ? { pct: CT_FEE, fix: 0, out: 0, inn: it.ship } : { ...settings, inn: it.ship });
-      const src = !isCt(it) ? "" : it.live?.ref != null ? `Cardmarket, listino del ${ddmm(it.live.priceDate)}`
+      // si mostra da dove viene il numero davvero usato: il prezzo di oggi o la stima d'acquisto
+      const src = !isCt(it) ? ""
+        : it.live?.ref != null && it.live.ref <= (it.est?.sellFast ?? Infinity) ? `Cardmarket, listino del ${ddmm(it.live.priceDate)}`
+        : it.live?.ref != null ? `${stimaDel(it.est?.at)}, più prudente del listino (${eur(it.live.ref)})`
         : it.live ? "nessun prezzo Cardmarket: " + stimaDel(it.est?.at) : stimaDel(it.est?.at);
       const snap = src ? ` <span class="muted">(${esc(src)})</span>` : "";
       // la stima dell'acquisto resta visibile accanto al prezzo di oggi: e' il confronto che valida i segnali
