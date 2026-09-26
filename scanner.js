@@ -146,6 +146,8 @@ function analyse(exp, blueprints, products, cm) {
       const refs = [rev ? guide?.["trend-holo"] : guide?.trend, rev ? guide?.["avg30-holo"] : guide?.avg30].filter(x => x > 0);
       if (!refs.length) continue;
       const cmRef = Math.min(...refs);
+      const cmT = (rev ? guide["trend-holo"] : guide.trend) || null;        // trend Cardmarket
+      const cmA = (rev ? guide["avg30-holo"] : guide.avg30) || null;        // media delle vendite a 30 giorni
       // se le due fonti si contraddicono di oltre 3 volte, il dato non e' affidabile
       const ratio = market / cmRef;
       if (ratio < 1 / 3 || ratio > 3) continue;
@@ -167,7 +169,7 @@ function analyse(exp, blueprints, products, cm) {
       out.push({
         name: b.name, version: b.version || null, expansion: exp.name, code: exp.code,
         reverse: rev, lang, buy: +best.v.toFixed(2), market: +market.toFixed(2),
-        cmId, cmTrend: cmRef ?? null, sell: +sell.toFixed(2),
+        cmId, cmTrend: cmRef ?? null, cmT, cmA, sell: +sell.toFixed(2),
         sellFast: +sellFast.toFixed(2), profitFast: +profitFast.toFixed(2),
         profit: +profit.toFixed(2), roi: +roi.toFixed(3), depth: g.length, qty: best.qty,
         suspect: roi > 1.5,                        // guadagni cosi' alti sono quasi sempre dati sbagliati

@@ -584,25 +584,53 @@ function buyDeal(key) {
   save();
   renderDeals(lastScan);
 }
+// Quanto e' solido il PREZZO di riferimento (non dice nulla su venditore, condizione o
+// autenticita': quelle restano da guardare a mano). Tre cose lo rendono debole:
+//  - poche offerte nella lingua della carta;
+//  - CardTrader e Cardmarket che dicono cose molto diverse;
+//  - Cardmarket in disaccordo con se' stesso, trend contro media delle vendite a 30 giorni
+//    (Seismitoad Illustration Rare, 26/09/2026: trend 522 € ma media 247 €, set appena uscito).
+function solidity(o) {
+  const perche = [];
+  const rap = (a, b) => a > 0 && b > 0 ? Math.max(a, b) / Math.min(a, b) : null;
+  const fonti = rap(o.market, o.cmTrend);
+  const dentroCm = rap(o.cmT, o.cmA);
+  if (o.depth < 7) perche.push(`solo ${o.depth} offerte`);
+  else perche.push(`${o.depth} offerte`);
+  if (fonti != null && fonti > 2) perche.push("CardTrader e Cardmarket in disaccordo");
+  else if (fonti != null && fonti <= 1.5) perche.push("fonti d'accordo");
+  if (dentroCm == null) perche.push("Cardmarket ha un solo dato");
+  else if (dentroCm > 2) perche.push("prezzo Cardmarket instabile");
+  const debole = o.lonely || o.suspect || o.depth < 7 || (fonti != null && fonti > 2) || (dentroCm != null && dentroCm > 2);
+  const forte = !debole && o.depth >= 10 && fonti != null && fonti <= 1.5 && dentroCm != null && dentroCm <= 1.3;
+  return { livello: debole ? "poco solido" : forte ? "solido" : "abbastanza solido",
+    classe: debole ? "bad" : forte ? "good" : "warn", perche: perche.join(", ") };
+}
+
 function dealCard(o) {
   const risky = o.lonely || o.suspect;
+  const sol = solidity(o);
   const key = dealKey(o);
   const copies = invCopies(key);
   return `<div class="deal${risky ? " risky" : ""}">
     <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
       ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
     <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}${data.watchlist.some(w => w.card?.idProduct === o.cmId) ? '<span class="tag">★ SEGUITA</span> ' : ""}${langTag(o)} <b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
-    <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""}</div>
-    <div class="small muted">Near Mint · ${o.depth} offerte in ${esc(LANG_NAME[o.lang] || o.lang || "?")}</div>
-    <div style="margin-top:4px">Compri a <b>${eur(o.buy)}</b> <span class="small muted">+ ${eur(shipOf(o))} sped.</span></div>
-    ${o.shipUnknown ? '<div class="small warn">⚠️ Spedizione non esposta dal venditore (CT Zero?): calcolati 7,90 €, controlla alla cassa</div>'
-      : o.shipMethod ? `<div class="small muted">${esc(o.shipMethod)}${o.shipTracked ? " · tracciata" : " · non tracciata"}</div>` : ""}
-    <div class="dprof"><b class="${cls(o.profitFast)}">+${eur(o.profitFast)}</b> <span class="small muted">vendendo subito</span></div>
-    <div class="small muted">+${eur(o.profit)} con calma (rivendi a ${eur(o.sell)})</div>
+    <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""} · Near Mint</div>
+    <div style="margin-top:6px">Paghi <b>${eur(o.buy + shipOf(o))}</b> <span class="small muted">tutto incluso${o.shipUnknown ? " (stimato)" : ""}</span> → rivendi a <b>${eur(o.sellFast)}</b></div>
+    <div class="dprof"><b class="${cls(o.profitFast)}">Guadagni ${eur(o.profitFast)}</b></div>
+    <div class="small"><span class="${sol.classe}">Prezzo ${sol.livello}</span> <span class="muted">(${esc(sol.perche)})</span></div>
+    ${o.shipUnknown ? '<div class="small warn">⚠️ Il venditore non espone la spedizione (CardTrader Zero?): stimati 7,90 €, controlla alla cassa</div>' : ""}
     ${o.lonely ? '<div class="small warn">⚠️ Prezzo isolato: molto sotto tutte le altre offerte della stessa carta</div>' : ""}
     ${o.suspect ? '<div class="small bad">⛔ Guadagno troppo alto per essere credibile</div>' : ""}
     ${o.note ? `<div class="small muted">«${esc(o.note)}»</div>` : ""}
-    <div class="small muted">${esc(o.seller || "?")}${o.country ? ` · spedisce da ${FLAG(o.country)} ${esc(o.country)}` : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}</div>
+    <details class="small muted" style="margin-top:6px"><summary>dettagli</summary>
+      Prezzo carta ${eur(o.buy)} + ${eur(shipOf(o))} di spedizione${o.shipMethod ? ` (${esc(o.shipMethod)}${o.shipTracked ? ", tracciata" : ", non tracciata"})` : ""}<br>
+      Venditore ${esc(o.seller || "?")}${o.country ? ` · spedisce da ${FLAG(o.country)} ${esc(o.country)}` : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}<br>
+      Altre offerte ${esc(LANG_NAME[o.lang] || o.lang || "")}: ${o.depth} in tutto, mediana ${eur(o.market)}<br>
+      Cardmarket: ${o.cmT ? `trend ${eur(o.cmT)}` : "trend non disponibile"}${o.cmA ? `, media 30 giorni ${eur(o.cmA)}` : ""} → si usa ${eur(o.cmTrend)}<br>
+      Vendendo con calma alla mediana: ${eur(o.sell)} → guadagni ${eur(o.profit)}
+    </details>
     <a class="dlink" href="${esc(o.url)}" target="_blank" rel="noopener">Apri su CardTrader</a>
     <button class="b" data-key="${esc(key)}" onclick="buyDeal(this.dataset.key)">${copies ? "Aggiungi copia" : "Segna come comprata"}</button>
   </div>`;
@@ -652,7 +680,8 @@ function renderDeals(st) {
         <option value="cheap" ${p.sort === "cheap" ? "selected" : ""}>Prezzo più basso</option>
         <option value="recent" ${p.sort === "recent" ? "selected" : ""}>Più recenti</option></select></label>
     </div>
-    <div class="note">Il guadagno grande è quello <b>vendendo subito</b> (ti metti sotto la seconda offerta oggi), già al netto di commissioni CardTrader (5,3% + IVA) e della spedizione vera del venditore (in Italia: 1,60 € non tracciata fino a 25 € di carrello, poi Raccomandata da 7,90 €). Solo venditori dell'Unione Europea.
+    <div class="note"><b>Paghi</b> = prezzo della carta più la spedizione vera del venditore. <b>Guadagni</b> = quanto ti resta vendendo subito su CardTrader (ti metti sotto la seconda offerta), già al netto delle commissioni (5,3% + IVA). <b>Prezzo solido</b> dice quanto è affidabile il valore di riferimento — non dice nulla su venditore, condizione e autenticità, che restano da guardare a mano. In «dettagli» ci sono tutti i conti e lo scenario vendendo con calma.
+      Il guadagno è già al netto di commissioni CardTrader (5,3% + IVA) e della spedizione vera del venditore (in Italia: 1,60 € non tracciata fino a 25 € di carrello, poi Raccomandata da 7,90 €). Solo venditori dell'Unione Europea.
       «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.
       <b>La lingua conta</b>: una carta italiana vale circa la metà della stessa carta in inglese, quindi ogni lingua è confrontata solo con le offerte della stessa lingua. Se compri un'italiana, la rivendi sul mercato italiano.</div></div>
     ${shown.length ? `<div class="grid">${shown.map(dealCard).join("")}</div>

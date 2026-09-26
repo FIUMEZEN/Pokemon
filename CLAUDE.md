@@ -105,6 +105,21 @@ La prima scansione completa produsse 343 "occasioni" guidate da fantasie tipo *c
 
 **Due scenari di vendita, entrambi calcolati:** `profit` (paziente, si vende alla mediana, presuppone attesa che le offerte più basse si esauriscano) e `profitFast` (immediato, ci si mette sotto la 2ª offerta). Un'occasione viene scartata se `profitFast <= 0`: deve reggere anche vendendo subito.
 
+## Sezione «Affari»: scheda a tre righe (26/09/2026)
+Fabio: «è tutto troppo complicato». La scheda mostrava prezzo, spedizione, metodo, lingua, profondità e due scenari di guadagno. Ora dice tre cose:
+```
+🇮🇹 Italiano  Mega Charizard X ex
+Phantasmal Flames · Special Illustration Rare | 125/094 · Near Mint
+Paghi 408,54 € tutto incluso → rivendi a 618,44 €
+Guadagni 169,91 €
+Prezzo abbastanza solido (30 offerte, fonti d'accordo)
+```
+Tutto il resto (prezzo carta + spedizione e metodo, venditore e paese, mediana delle altre offerte, trend e media Cardmarket, scenario «con calma») sta in un `<details>` **dettagli**.
+- **«Prezzo solido / abbastanza solido / poco solido»** (`solidity()` in index.html) misura **quanto è affidabile il valore di riferimento**, non il venditore né la condizione: si dice esplicitamente, su indicazione di Sol. Poco solido se `lonely`/`suspect`, meno di 7 offerte nella lingua, CardTrader e Cardmarket oltre 2× di distanza, oppure **trend e media a 30 giorni di Cardmarket oltre 2× tra loro**. Solido se ≥ 10 offerte, fonti entro 1,5× e Cardmarket coerente entro 1,3×.
+- Per questo lo scanner salva ora anche `cmT` (trend) e `cmA` (media 30 giorni) separati, oltre a `cmTrend` (il più prudente).
+- **Caso che ha motivato la misura**: Seismitoad Illustration Rare 105/086 di Black Bolt, 26/09/2026 — trend Cardmarket 522,48 € ma media delle vendite a 30 giorni 246,79 €, e il trend era 352,70 € quattro giorni prima (primo dato utile dello storico prezzi). Set appena uscito, pochi scambi: il «valore» è un'ipotesi. La scheda ora scrive «prezzo Cardmarket instabile».
+- Restano fuori dai dettagli, perché servono a decidere: lingua, set e versione, Near Mint, prezzo totale, guadagno vendendo subito, avvisi `lonely`/`suspect`/spedizione stimata, nota del venditore, etichette NUOVA / IN INVENTARIO / ★ SEGUITA.
+
 ## Sezione «Affari» (rifatta il 21/09/2026)
 - **Schede con immagine** in griglia (`dealCard`), ordinate di default per **guadagno vendendo subito** (`profitFast`, il dato realistico). Filtri salvati nel `localStorage`: budget massimo per carta, guadagno minimo, ordinamento. Le occasioni sospette (`lonely`/`suspect`) stanno in una sezione a parte, chiusa di default. I gruppi «stesso venditore» mostrano le miniature.
 - Immagini: dal blueprint CardTrader (`image.preview.url`), salvate come `img` in `cache-blueprints.json` e come `image` nelle occasioni. Gli indirizzi senza `www` rimandano a `www.cardtrader.com`: si salva direttamente quello. `scanner.js` e `build-catalog.js` salvano i blueprint nella stessa forma (cache condivisa); le voci vecchie senza `img` si riscaricano.

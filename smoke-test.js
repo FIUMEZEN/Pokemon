@@ -88,7 +88,9 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     if (deals) {
       const d = await ev(`(() => { const b = document.querySelector(".deal button[data-key]"); const o = dealsData.opportunities.find(x => dealKey(x) === b.dataset.key);
         return { key: b.dataset.key, buy: o.buy, ship: shipOf(o), text: b.closest(".deal").innerText }; })()`);
-      check("spedizione nella scheda", /sped\./.test(d.text), `${d.ship} €`);
+      check("prezzo tutto incluso nella scheda", /Paghi .* tutto incluso/.test(d.text), `carta ${d.buy} € + ${d.ship} € di spedizione`);
+      check("solidità del prezzo nella scheda", /Prezzo (solido|abbastanza solido|poco solido)/.test(d.text));
+      check("dettagli richiudibili", await ev(`!!document.querySelector(".deal details")`));
       await ev(`__ans = [${JSON.stringify(String(d.buy).replace(".", ","))}, "@def"]; document.querySelector(".deal button[data-key]").click(); 1`);
       await sleep(200);
       const it = await ev(`data.inventory[0] || null`);
