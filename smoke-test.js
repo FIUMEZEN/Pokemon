@@ -1,10 +1,9 @@
-// Test veloce della pagina (nessuna dipendenza): apre l'app in un Chrome headless separato,
-// passa per tutte le tab, prova i flussi principali e segnala errori JavaScript.
-// Uso:  node smoke-test.js        (con il server acceso; se e' spento lo avvia con --no-auto)
+// Prova veloce dell'app da banco (nessuna dipendenza): apre la pagina in un Chrome headless
+// grande come un telefono, cerca una carta, apre i prezzi, registra un acquisto finto e
+// controlla il conto della giornata.
+// Uso:  node smoke-test.js        (con il server acceso; se e' spento lo avvia)
 //
-// Non tocca data.json: nella pagina save() viene disattivato e le PUT a /api/data bloccate.
-// Alla fine controlla comunque che data.json sia identico a prima.
-// Non lancia scansioni (POST /api/scan bloccata). Fa solo letture: listino, TCGdex, /api/live.
+// Non tocca data.json (lo confronta prima e dopo) e non lancia scansioni.
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -20,19 +19,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const hash = f => fs.existsSync(f) ? crypto.createHash("sha1").update(fs.readFileSync(f)).digest("hex") : "assente";
 
 const results = [];
-const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info }); console.log(`${ok ? "  ok " : "  NO "} ${name}${info ? "  — " + info : ""}`); };
+const check = (name, ok, info = "") => { results.push({ ok: !!ok }); console.log(`${ok ? "  ok " : "  NO "} ${name}${info ? "  — " + info : ""}`); };
 
 (async () => {
   if (!CHROME) { console.error("Chrome non trovato."); process.exit(1); }
   const before = hash(DATA);
   let server = null;
   try { await fetch(BASE + "/api/scan"); } catch {
-    console.log("Server spento: lo avvio con --no-auto.");
-    server = spawn(process.execPath, [path.join(__dirname, "server.js"), "--no-auto"], { cwd: __dirname, stdio: "ignore" });
-    for (let i = 0; i < 40; i++) { try { await fetch(BASE + "/api/scan"); break; } catch { await sleep(500); } }
+    console.log("Server spento: lo avvio.");
+    server = spawn(process.execPath, [path.join(__dirname, "server.js")], { cwd: __dirname, stdio: "ignore" });
+    for (let i = 0; i < 60; i++) { try { await fetch(BASE + "/api/scan"); break; } catch { await sleep(500); } }
   }
   const profile = path.join(require("os").tmpdir(), "pokemon-smoke-" + PORT);
-  const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+  // finestra da telefono: e' li' che l'app va usata
+  const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
+    "--window-size=390,844", "about:blank"], { stdio: "ignore" });
   let ws;
   const errors = [];
   try {
@@ -53,128 +54,57 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
       return r.result.result.value;
     };
     await send("Runtime.enable");
-    // Prima che la pagina parta: niente scritture su data.json, niente scansioni, dialoghi finti.
     await send("Page.enable");
+    // dialoghi finti e memoria del telefono pulita a ogni prova
     await send("Page.addScriptToEvaluateOnNewDocument", { source: `
-      const _fetch = window.fetch;
-      window.fetch = (u, o = {}) => {
-        const m = (o.method || "GET").toUpperCase();
-        if ((String(u).includes("/api/data") && m === "PUT") || (String(u).includes("/api/scan") && m === "POST"))
-          return Promise.resolve(new Response('{"ok":true}', { status: 200 }));
-        return _fetch(u, o);
-      };
-      window.__ans = []; window.__prompts = [];
-      // risposta "@def" = accettare il valore proposto, come premere Invio
-      window.prompt = (msg, def) => { __prompts.push({ msg, def }); const a = __ans.length ? __ans.shift() : null; return a === "@def" ? String(def) : a; };
+      try { localStorage.clear(); } catch {}
+      window.__ans = [];
+      window.prompt = (msg, def) => { const a = __ans.shift(); return a === "@def" ? String(def) : a ?? null; };
       window.confirm = () => (__ans.length ? __ans.shift() : true);
-      window.alert = m => __prompts.push({ alert: m });
+      window.alert = () => {};
     ` });
     await send("Page.navigate", { url: BASE + "/" });
     await sleep(2500);
-    await ev(`window.save = () => {}; data = { watchlist: [], inventory: [] }; 1`);   // parte vuota, mai salvata
 
-    console.log("\nTab:");
-    for (const t of ["scan", "perito", "deals", "search", "watch", "inv"]) {
-      const n0 = errors.length;
-      await ev(`go(${JSON.stringify(t)}); 1`); await sleep(t === "deals" ? 2500 : 400);
-      const len = await ev(`document.querySelector("#view").innerText.length`);
-      check(`tab ${t}`, len > 20 && errors.length === n0, `${len} caratteri`);
-    }
+    console.log("\nSchermate:");
+    check("si apre sulla Carta", await ev(`tab === "carta"`));
+    check("due sole schede", await ev(`Object.keys(TABS).join(",")`) === "carta,giornata", await ev(`Object.keys(TABS).join(", ")`));
 
-    console.log("\nScanner:");
-    await ev(`go("scan"); scanCerca("charizard ex 199"); 1`);
-    for (let k = 0; k < 40 && !(await ev(`!!scanRes`)); k++) await sleep(150);
-    const trovate = await ev(`scanRes ? scanRes.cards.length : 0`);
-    check("ricerca istantanea nello scanner", trovate > 0, trovate + " carte");
-    check("espansione e numero nei risultati", await ev(`/199/.test(document.querySelector("#view").innerText)`));
+    console.log("\nCerca una carta:");
+    const t0 = Date.now();
+    await ev(`cerca("charizard ex 199"); 1`);
+    for (let i = 0; i < 40 && !(await ev(`!!risultati`)); i++) await sleep(150);
+    const n = await ev(`risultati ? risultati.cards.length : 0`);
+    check("ricerca istantanea", n > 0, `${n} carte in ${Date.now() - t0} ms`);
+    check("espansione e numero nella lista", await ev(`/199/.test(document.querySelector("#lista").innerText)`));
 
-    console.log("\nAffari:");
-    await ev(`go("deals"); 1`); await sleep(2500);
-    const deals = await ev(`document.querySelectorAll(".deal").length`);
-    check("schede occasioni", deals > 0, `${deals} schede`);
-    if (deals) {
-      const d = await ev(`(() => { const b = document.querySelector(".deal button[data-key]"); const o = dealsData.opportunities.find(x => dealKey(x) === b.dataset.key);
-        return { key: b.dataset.key, buy: o.buy, ship: shipOf(o), text: b.closest(".deal").innerText }; })()`);
-      check("prezzo tutto incluso nella scheda", /Paghi .* tutto incluso/.test(d.text), `carta ${d.buy} € + ${d.ship} € di spedizione`);
-      check("solidità del prezzo nella scheda", /Prezzo (solido|abbastanza solido|poco solido)/.test(d.text));
-      check("dettagli richiudibili", await ev(`!!document.querySelector(".deal details")`));
-      await ev(`__ans = [${JSON.stringify(String(d.buy).replace(".", ","))}, "@def"]; document.querySelector(".deal button[data-key]").click(); 1`);
-      await sleep(200);
-      const it = await ev(`data.inventory[0] || null`);
-      check("«Segna come comprata» → inventario", it && it.src === "ct" && it.buy === d.buy && it.est && it.ct?.blueprintId, it ? `buy ${it.buy}, ship ${it.ship}` : "nessuna voce");
-      const shipDef = await ev(`__prompts.filter(p => /Spedizione/.test(p.msg || "")).at(-1)?.def`);
-      check("spedizione proposta = quella dello scanner", Number(shipDef) === d.ship, `${shipDef}`);
-      check("etichetta IN INVENTARIO", await ev(`document.querySelector(".deal").innerText.includes("IN INVENTARIO")`));
-    }
+    console.log("\nPrezzi della carta:");
+    await ev(`apri(risultati.cards[0].id); 1`);
+    for (let i = 0; i < 60 && (await ev(`attesa`)); i++) await sleep(200);
+    const testo = await ev(`document.querySelector("#view").innerText`);
+    check("offerte CardTrader per lingua", /Italiano|Inglese|Giapponese/.test(testo), (await ev(`(offerte?.offerte || []).length`)) + " gruppi");
+    check("prezzi Cardmarket", /Trend/.test(testo));
+    check("prezzo grande in cima", await ev(`!!document.querySelector(".big")`));
+    check("nessun calcolo di rivendita", !/ROI|Paga al massimo|guadagn/i.test(testo), "niente aritmetica");
 
-    console.log("\nCerca e Watchlist:");
-    await ev(`go("search"); 1`); await sleep(200);
-    await ev(`document.querySelector("#q").value = "Pikachu"; document.querySelector("#go").click(); 1`);
-    for (let i = 0; i < 40 && !(await ev(`lastSearch.cards.length > 0 || /Errore|Nessun/.test(document.querySelector("#results").innerText)`)); i++) await sleep(500);
-    const heads = await ev(`[...document.querySelectorAll("#results th")].map(t => t.innerText).join("|")`);
-    check("colonna «Paga al massimo», niente margine su low", /Paga al massimo/.test(heads) && !/Margine/.test(heads), heads.replace(/\n/g, " "));
-    const nCards = await ev(`lastSearch.cards.length`);
-    check("risultati ricerca", nCards > 0, `${nCards} carte`);
-    if (nCards) {
-      const pct0 = await ev(`settings.pct`);
-      const a = await ev(`document.querySelector("#results tbody tr").cells[3].innerText`);
-      await ev(`settings.pct = 20; render(); 1`);
-      const b = await ev(`document.querySelector("#results tbody tr").cells[3].innerText`);
-      await ev(`settings.pct = ${pct0}; render(); 1`);
-      check("«Paga al massimo» segue le commissioni", a !== b || /non rende|senza prezzo/.test(a), `${a} → ${b}`);
-      await ev(`addWatch(lastSearch.cards[0].id); 1`); await sleep(200);
-      check("watchlist", await ev(`data.watchlist.length === 1 && /Paga al massimo oggi/.test(document.querySelector("#view").innerText)`));
-      // la watchlist deve dire se una carta seguita e' in vendita adesso su CardTrader
-      const legata = await ev(`(async () => {
-        const o = (dealsData?.opportunities || []).find(x => x.cmId);
-        if (!o) return null;
-        data.watchlist[0].card.idProduct = o.cmId; data.watchlist[0].target = o.buy + 1;
-        await viewWatch();
-        const t = document.querySelector("#view").innerText;
-        return { nome: o.name, prezzo: o.buy, inVendita: /in vendita ora/i.test(t), sottoTetto: /SOTTO IL TUO TETTO/.test(t) };
-      })()`);
-      check("watchlist collegata alle occasioni", !!legata && legata.inVendita && legata.sottoTetto,
-        legata ? `${legata.nome} a ${legata.prezzo} €` : "nessuna occasione con id Cardmarket");
-      await ev(`__ans = ["2,50"]; addInv(lastSearch.cards[0].id); 1`); await sleep(200);
-      const cercaInv = await ev(`data.inventory.find(it => !it.src) || null`);
-      check("«+ Compro» con virgola e senza valore precompilato", cercaInv?.buy === 2.5 && (await ev(`__prompts.filter(p => /Prezzo pagato/.test(p.msg || "")).at(-1)?.def`)) === "", cercaInv ? `buy ${cercaInv.buy}` : "");
-    }
+    console.log("\nSegnare un acquisto:");
+    await ev(`__ans = ["12,50"]; presa(); 1`);
+    await sleep(200);
+    const acq = await ev(`acquisti[0] || null`);
+    check("acquisto registrato", acq && acq.prezzo === 12.5 && acq.nome, acq ? `${acq.nome} a ${acq.prezzo} €` : "niente");
+    check("si passa alla Giornata", await ev(`tab === "giornata"`));
+    check("totale speso in pagina", await ev(`/12,50/.test(document.querySelector("#view").innerText)`));
+    await ev(`localStorage.getItem("acquisti") ? 1 : 0`);
+    check("resta nel telefono", await ev(`JSON.parse(localStorage.getItem("acquisti")).length === 1`));
 
-    console.log("\nInventario:");
-    await ev(`invTry = 0; go("inv"); 1`);
-    for (let i = 0; i < 30 && (await ev(`invLoading || data.inventory.some(it => !it.live)`)); i++) await sleep(500);
-    const inv = await ev(`data.inventory.map(it => ({ src: it.src || "cerca", live: !!it.live, ref: invRef(it) }))`);
-    check("prezzi vivi", inv.length > 0 && inv.every(x => x.live), JSON.stringify(inv));
-    check("pagina inventario", await ev(`/Capitale in carte/.test(document.querySelector("#view").innerText)`));
+    console.log("\nScatolone:");
+    await ev(`lottoCalc("carte", "500"); lottoCalc("prezzo", "30"); 1`);
+    const lot = await ev(`document.querySelector("#lottoout").innerText`);
+    check("prezzo per carta", /0,06/.test(lot), lot.replace(/\n/g, " ").slice(0, 60));
+    await ev(`lottoCalc("prezzo", "250"); 1`);
+    check("giudizio sul lotto caro", /Caro/.test(await ev(`document.querySelector("#lottoout").innerText`)));
 
-    console.log("\nBanco di vendita:");
-    if (await ev(`data.inventory.length > 0`)) {
-      const costo = await ev(`data.inventory[0].buy + data.inventory[0].ship`);
-      const floor = await ev(`floorPrice(data.inventory[0])`);
-      check("prezzo minimo sopra il costo", floor > costo, `minimo ${floor.toFixed(2)} contro costo ${costo.toFixed(2)}`);
-      await ev(`__ans = ["CardTrader", "@def"]; listCard(0); 1`); await sleep(200);
-      const l = await ev(`data.inventory[0].listing`);
-      check("messa in vendita", !!l && l.platform === "CardTrader" && l.price > 0, l ? `${l.platform} a ${l.price} €` : "nessun annuncio");
-      check("annuncio visibile in pagina", await ev(`/In vendita su/.test(document.querySelector("#view").innerText)`));
-      if (l) {
-        await ev(`__ans = [${JSON.stringify((l.price * 0.9).toFixed(2).replace(".", ","))}]; dropPrice(0); 1`); await sleep(200);
-        check("ribasso registrato", await ev(`data.inventory[0].listing.drops.length === 1 && data.inventory[0].listing.price < ${l.price}`));
-      }
-      await ev(`__ans = ["@def", "@def"]; sell(0); 1`); await sleep(200);
-      const sold = await ev(`data.inventory[0].sold`);
-      const senzaAnnuncio = await ev(`!data.inventory[0].listing`);
-      check("vendita con incasso reale", !!sold && sold.net > 0 && !!sold.at && senzaAnnuncio, sold ? `incassati ${sold.net} €` : "non registrata");
-      check("guadagno realizzato in pagina", await ev(`/Guadagno realizzato/.test(document.querySelector("#view").innerText)`));
-      // il conto deve tornare al centesimo: incassato - imballaggio - (prezzo pagato + spedizione)
-      const conti = await ev(`(() => { const it = data.inventory[0], r = soldProfit(it);
-        return { profit: r.profit, atteso: it.sold.net - (it.sold.out || 0) - it.buy - it.ship, out: it.sold.out, plat: it.sold.platform }; })()`);
-      check("guadagno calcolato al centesimo", Math.abs(conti.profit - conti.atteso) < 0.005, `${conti.profit.toFixed(2)} € su ${conti.plat}, imballaggio ${conti.out} €`);
-      const floorCt = await ev(`floorPrice(data.inventory[0], "CardTrader") > floorPrice(data.inventory[0], "Vinted")`);
-      check("il prezzo minimo cambia con la piattaforma", floorCt, "CardTrader (6,47%) più alto di Vinted (0%)");
-    }
-
-
-    check("nessun errore JavaScript", errors.length === 0, errors.slice(0, 3).join(" | "));
+    check("nessun errore JavaScript", errors.length === 0, errors.slice(0, 2).join(" | "));
   } catch (e) {
     check("esecuzione del test", false, e.message);
   } finally {
@@ -184,7 +114,7 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     try { fs.rmSync(profile, { recursive: true, force: true }); } catch {}
   }
   check("data.json non modificato", hash(DATA) === before);
-  const bad = results.filter(r => !r.ok);
-  console.log(`\n${bad.length ? `FALLITI ${bad.length} controlli su ${results.length}` : `Tutti i ${results.length} controlli superati`}.`);
-  process.exit(bad.length ? 1 : 0);
+  const bad = results.filter(r => !r.ok).length;
+  console.log(`\n${bad ? `FALLITI ${bad} controlli su ${results.length}` : `Tutti i ${results.length} controlli superati`}.`);
+  process.exit(bad ? 1 : 0);
 })();

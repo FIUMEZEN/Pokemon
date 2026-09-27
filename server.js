@@ -1044,11 +1044,14 @@ function backupData() {
 //  - COMPLETO ogni ora, su tutte (~800 richieste), che ricalcola quali sono le calde.
 // In media ~0,5 richieste al secondo. Il blocco Cloudflare del 21/09 era nato da ~5.000
 // richieste in pochi minuti. Se una scansione fallisce, i giri automatici si fermano 15 minuti.
-// "node server.js --no-auto" li disattiva: resta solo il pulsante.
+// Di default sono SPENTI: si accendono con "node server.js --scansioni".
 const { spawn } = require("child_process");
 const OPP_FILE = path.join(__dirname, "opportunities.json");
 const FAST_EVERY = 5 * 60 * 1000, FULL_EVERY = 60 * 60 * 1000, BUTTON_GAP = 2 * 60 * 1000, BACKOFF = 15 * 60 * 1000;
-const AUTO = !process.argv.includes("--no-auto");
+// Dal 27/09/2026 l'app e' uno strumento da banco: la sezione Affari non c'e' piu' e i giri
+// automatici servirebbero solo a riempire il diario, rubando richieste CardTrader allo scanner
+// (stesso token, stesso Cloudflare). Restano possibili con "node server.js --scansioni".
+const AUTO = process.argv.includes("--scansioni");
 const scanJob = { running: false, mode: null, done: 0, total: 0, found: 0, fresh: 0, error: null, errorAt: 0 };
 const oppTimes = () => {
   const o = loadJson(OPP_FILE, null);

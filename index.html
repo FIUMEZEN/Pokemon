@@ -1,375 +1,324 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pokemon Trader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pokémon — al banco</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#6b7280; --line:#e5e7eb; --acc:#2563eb; --good:#15803d; --bad:#b91c1c; --warn:#b45309; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#12141a; --card:#1b1e27; --text:#e8eaef; --muted:#9aa1b0; --line:#2b2f3b; --acc:#6b9bff; --good:#4ade80; --bad:#f87171; --warn:#fbbf24; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--text); }
-  header { padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
-  h1 { font-size:18px; margin:0; }
-  nav { display:flex; flex-wrap:wrap; gap:4px; }
-  nav button { border:0; background:none; padding:8px 14px; border-radius:8px; cursor:pointer; color:var(--muted); font:inherit; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:10px 14px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:9; }
+  h1 { font-size:16px; margin:0; white-space:nowrap; }
+  nav { display:flex; gap:4px; margin-left:auto; }
+  nav button { border:0; background:none; padding:9px 16px; border-radius:8px; cursor:pointer; color:var(--muted); font:inherit; }
   nav button.on { background:var(--acc); color:#fff; }
-  main { max-width:1100px; margin:0 auto; padding:16px; }
-  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
-  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
-  label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); }
-  input, select { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--text); }
-  input[type=number] { width:100px; }
-  button.b { font:inherit; padding:7px 12px; border:1px solid var(--line); border-radius:7px; background:var(--card); color:var(--text); cursor:pointer; }
+  main { max-width:820px; margin:0 auto; padding:12px 14px 40px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  input { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--text); }
+  button.b { font:inherit; padding:10px 14px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--text); cursor:pointer; }
   button.b.p { background:var(--acc); border-color:var(--acc); color:#fff; }
-  button.b:disabled { opacity:.5; cursor:wait; }
-  table { width:100%; border-collapse:collapse; }
-  th, td { padding:8px; text-align:right; border-bottom:1px solid var(--line); vertical-align:middle; }
-  th:first-child, td:first-child, th.l, td.l { text-align:left; }
-  th { font-size:12px; color:var(--muted); font-weight:500; }
-  .card { display:flex; gap:10px; align-items:center; text-align:left; }
-  .card img { width:44px; border-radius:4px; }
-  .card small { color:var(--muted); display:block; }
-  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .muted { color:var(--muted); }
-  .tag { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px; background:var(--good); color:#fff; }
-  .msg { padding:10px; color:var(--muted); }
-  .err { color:var(--bad); }
-  .stats { display:flex; flex-wrap:wrap; gap:24px; }
-  .stats div b { display:block; font-size:20px; }
-  .stats div span { color:var(--muted); font-size:12px; }
-  .note { font-size:12px; color:var(--muted); margin-top:8px; }
-  .scroll { overflow-x:auto; }
-  /* Affari: schede con immagine */
-  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; margin-bottom:14px; }
-  .deal { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:4px; }
-  .deal.risky { border-color:var(--warn); }
-  .dimg { aspect-ratio:63/88; background:var(--bg); border-radius:6px; overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:4px; }
-  .dimg img { width:100%; height:100%; object-fit:contain; }
-  .small { font-size:12px; }
-  .dprof b { font-size:18px; }
-  a.dlink, .deal .b { display:block; width:100%; text-align:center; text-decoration:none; margin-top:6px; padding:7px; border:1px solid var(--line); border-radius:7px; color:var(--acc); }
-  a.dlink { margin-top:auto; }
-  .prog { height:8px; background:var(--line); border-radius:99px; overflow:hidden; margin:10px 0 4px; }
-  .prog div { height:100%; background:var(--acc); transition:width .5s; }
-  .thumbs { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
-  .thumbs img { height:64px; border-radius:3px; }
-  details summary { cursor:pointer; font-weight:600; }
+  button.b.big { font-size:17px; padding:14px 18px; width:100%; }
   a { color:var(--acc); }
+  .muted { color:var(--muted); }
+  .small { font-size:13px; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; }
+  .msg { padding:14px; color:var(--muted); text-align:center; }
+  .err { color:var(--bad); }
+  .tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:99px; background:var(--line); color:var(--text); vertical-align:middle; }
+  /* il numero che guardi da un metro di distanza, con la carta in mano */
+  .big { font-size:34px; font-weight:700; line-height:1.1; }
+  .prezzo { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .prezzo:last-child { border-bottom:0; }
+  .ris { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .ris img { width:46px; border-radius:4px; }
+  .ris:last-child { border-bottom:0; }
+  details summary { cursor:pointer; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Pokemon Trader</h1>
+  <h1>Pokémon</h1>
   <nav id="nav"></nav>
 </header>
-<main>
-  <section class="panel" id="settings">
-    <div class="row">
-      <label>Piattaforma di rivendita
-        <select id="plat"></select>
-      </label>
-      <label>Commissione %<input type="number" id="feePct" step="0.1" min="0"></label>
-      <label>Fissa €<input type="number" id="feeFix" step="0.05" min="0"></label>
-      <label>Costo spedizione per te €<input type="number" id="shipOut" step="0.1" min="0" title="La spedizione la paga il compratore: qui va solo quello che resta a te, cioè l'imballaggio"></label>
-      <label>Spedizione acquisto €<input type="number" id="shipIn" step="0.1" min="0"></label>
-    </div>
-    <div class="note">Valori indicativi e modificabili: controlla le tariffe attuali della piattaforma. «Paga al massimo» in Cerca e Watchlist, il prezzo minimo di vendita e l'inventario li usano tutti.</div>
-  </section>
-  <div id="view"></div>
-</main>
-
+<main id="view"></main>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const eur = n => n == null || isNaN(n) ? "–" : n.toLocaleString("it-IT", { style:"currency", currency:"EUR" });
-const pct = n => n == null || !isFinite(n) ? "–" : (n > 0 ? "+" : "") + (n * 100).toFixed(1) + "%";
-const age = d => d ? Math.floor((Date.now() - new Date(d.replace(/\//g, "-"))) / 864e5) : null;
-const fresh = c => {
-  const a = age(c.updated);
-  if (a == null) return '<span class="bad">n/d</span>';
-  return `<span class="${a > 14 ? "bad" : "muted"}" title="Aggiornato ${esc(c.updated)}">${a}g fa${a > 14 ? " ⚠" : ""}</span>`;
-};
-const cls = n => n > 0 ? "good" : n < 0 ? "bad" : "muted";
-// numero scritto dall'utente: accetta la virgola decimale ("68,62"), altrimenti parseFloat darebbe 68
-const num = s => parseFloat(String(s ?? "").replace(",", "."));
-
-const PLATFORMS = {
-  "Cardmarket":      { pct: 5,   fix: 0,    out: 0.3 },
-  "eBay":            { pct: 12.8, fix: 0.35, out: 0.3 },
-  "Vinted":          { pct: 0,   fix: 0,    out: 0.3 },
-  "Vendita diretta": { pct: 0,   fix: 0,    out: 0 },
-  "Personalizzata":  null,
-};
-// "out" = quanto costa a TE spedire la carta venduta. Su Cardmarket, CardTrader, eBay e Vinted
-// la spedizione la paga il compratore: al venditore resta l'imballaggio (bustina, cartoncino,
-// busta imbottita). Lo scanner usa 0 per lo stesso motivo.
-let settings = { plat: "Cardmarket", pct: 5, fix: 0, out: 0.3, inn: 1.5 };
-try { Object.assign(settings, JSON.parse(localStorage.getItem("settings") || "{}")); } catch {}
-// I vecchi default della spedizione in vendita (1,50 / 2,50 / 3) non erano una scelta: si aggiornano
-// una volta sola. Dopo, quello che scrivi tu resta tuo, anche se coincide con un vecchio default.
-if (!settings.v) {
-  if ([1.5, 2.5, 3].includes(settings.out)) settings.out = 0.3;
-  settings.v = 2;
-  try { localStorage.setItem("settings", JSON.stringify(settings)); } catch {}
-}
-
-let data = { watchlist: [], inventory: [] };
-let tab = "scan";                       // al mercatino l'app si apre sullo scanner
-let lastSearch = { cards: [], extra: "" };
-const cardCache = {}; // id -> card (per ricostruire watchlist/inventario)
-
-// ---------- calcoli ----------
-// Margine netto comprando a `buy` e rivendendo a `sell` con le impostazioni correnti.
-function net(buy, sell, s = settings) {
-  if (buy == null || sell == null) return null;
-  const cost = buy + s.inn;
-  const proceeds = sell * (1 - s.pct / 100) - s.fix - s.out;
-  return { profit: proceeds - cost, roi: (proceeds - cost) / cost };
-}
-// rivendita prudente: il piu' basso tra trend e media a 30 giorni, come scanner, perito e inventario
-const sellPrice = c => { const r = [c.cm.trend, c.cm.avg30].filter(x => x > 0); return r.length ? Math.min(...r) : null; };
-// Comprando su Vinted il compratore paga la protezione acquisti (0,70 € + 5%) piu' la spedizione:
-// il prezzo massimo da offrire e' piu' basso. Stessi valori del perito in server.js.
-const VINTED_BUY = { fix: 0.7, pct: 0.05, ship: 3 };
-function maxBuyVinted(sell, roi = 0.2, s = settings) {
-  const mb = maxBuy(sell, roi, { ...s, inn: 0 });      // il tetto senza spedizione d'acquisto
-  return mb == null ? null : (mb - VINTED_BUY.fix - VINTED_BUY.ship) / (1 + VINTED_BUY.pct);
-}
-// Prezzo massimo d'acquisto per ottenere `roi` minimo rivendendo a `sell`
-function maxBuy(sell, roi = 0.2, s = settings) {
-  if (sell == null) return null;
-  const proceeds = sell * (1 - s.pct / 100) - s.fix - s.out;
-  return proceeds / (1 + roi) - s.inn;
-}
-
-// ---------- persistenza ----------
-let saveTimer;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => fetch("/api/data", { method: "PUT", body: JSON.stringify(data) }), 200);
-}
-function saveSettings() { localStorage.setItem("settings", JSON.stringify(settings)); }
-
-async function api(url) {
-  const r = await fetch(url);
+const num = s => parseFloat(String(s ?? "").replace(",", "."));     // la virgola italiana
+const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day:"2-digit", month:"2-digit" }); };
+const oggi = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+async function api(url, opt) {
+  const r = await fetch(url, opt);
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
-
-// ---------- impostazioni ----------
-function initSettings() {
-  $("#plat").innerHTML = Object.keys(PLATFORMS).map(p => `<option ${p === settings.plat ? "selected" : ""}>${p}</option>`).join("");
-  const apply = () => {
-    $("#feePct").value = settings.pct; $("#feeFix").value = settings.fix;
-    $("#shipOut").value = settings.out; $("#shipIn").value = settings.inn;
-  };
-  apply();
-  $("#plat").onchange = e => {
-    settings.plat = e.target.value;
-    const p = PLATFORMS[settings.plat];
-    if (p) { settings.pct = p.pct; settings.fix = p.fix; settings.out = p.out; }
-    apply(); saveSettings(); render();
-  };
-  const bind = (id, key) => $(id).onchange = e => {
-    settings[key] = parseFloat(e.target.value) || 0; settings.plat = "Personalizzata";
-    $("#plat").value = "Personalizzata"; saveSettings(); render();
-  };
-  bind("#feePct", "pct"); bind("#feeFix", "fix"); bind("#shipOut", "out"); bind("#shipIn", "inn");
-}
-
-// ---------- viste ----------
-const TABS = { scan: "Scanner", perito: "Perito", deals: "Affari", search: "Cerca", watch: "Watchlist", inv: "Inventario" };
-function render() {
-  $("#nav").innerHTML = Object.entries(TABS).map(([k, v]) => `<button class="${k === tab ? "on" : ""}" onclick="go('${k}')">${v}</button>`).join("");
-  // Perito e Affari calcolano gia' i costi delle piattaforme per conto loro: li' il riquadro
-  // delle commissioni non conta nulla e sul telefono occupava mezza schermata.
-  $("#settings").style.display = ["perito", "deals", "scan"].includes(tab) ? "none" : "";
-  ({ scan: viewScan, perito: viewPerito, deals: viewDeals, search: viewSearch, watch: viewWatch, inv: viewInv })[tab]();
-}
-
-// --- Scanner (mercatino): cerchi la carta, vedi i prezzi delle due piattaforme -----------
-// Niente calcoli: a sinistra quello che chiedono ADESSO su CardTrader, a destra il listino
-// Cardmarket del giorno. La lista delle carte guardate resta nel telefono (sessionStorage).
-let scanQ = "", scanRes = null, scanSel = null, scanOffers = null, scanErr = "", scanBusy = false, scanTimer = null;
+const LANG_NAME = { it:"Italiano", en:"Inglese", de:"Tedesco", fr:"Francese", es:"Spagnolo", pt:"Portoghese", jp:"Giapponese", "zh-CN":"Cinese", kr:"Coreano" };
+const LANG_FLAG = { it:"🇮🇹", en:"🇬🇧", de:"🇩🇪", fr:"🇫🇷", es:"🇪🇸", pt:"🇵🇹", jp:"🇯🇵", kr:"🇰🇷" };
 const COND_ORD = ["Near Mint", "Slightly Played", "Moderately Played", "Played", "Poor"];
-const COND_IT = { "Near Mint": "Near Mint", "Slightly Played": "Poco giocata", "Moderately Played": "Giocata", "Played": "Molto giocata", "Poor": "Rovinata" };
-const viste = (() => { try { return JSON.parse(sessionStorage.getItem("viste") || "[]"); } catch { return []; } })();
-const salvaViste = () => { try { sessionStorage.setItem("viste", JSON.stringify(viste.slice(0, 60))); } catch {} };
+const COND_IT = { "Near Mint":"Near Mint", "Slightly Played":"Poco giocata", "Moderately Played":"Giocata", "Played":"Molto giocata", "Poor":"Rovinata" };
 
-async function scanCerca(q) {
-  scanQ = q;
-  clearTimeout(scanTimer);
-  if (q.trim().length < 3) { scanRes = null; return viewScan(true); }
-  scanTimer = setTimeout(async () => {
-    try { scanRes = await api("/api/find?q=" + encodeURIComponent(q)); scanErr = ""; }
-    catch (e) { scanErr = e.message; }
-    if (tab === "scan") viewScan(true);
+// ---------- la giornata: quello che hai visto e quello che hai preso ----------
+// Resta nel telefono (localStorage): non tocca i file del PC e sopravvive se chiudi la pagina.
+const carica = (k, def) => { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } };
+let memoriaRotta = false;
+const salva = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { memoriaRotta = true; } };
+// si tengono 30 giorni: la lista serve in giornata, non come archivio
+let acquisti = carica("acquisti", []).filter(a => (Date.now() - Date.parse(a.at || 0)) < 30 * 86400000);
+let viste = carica("viste", []);
+const diOggi = a => a.filter(x => x.giorno === oggi());
+const spesoOggi = () => diOggi(acquisti).reduce((s, x) => s + (x.prezzo || 0), 0);
+
+let tab = "carta";
+const TABS = { carta: "Carta", giornata: "Giornata" };
+function render() {
+  $("#nav").innerHTML = Object.entries(TABS).map(([k, v]) =>
+    `<button class="${k === tab ? "on" : ""}" onclick="vai('${k}')">${v}${k === "giornata" && diOggi(acquisti).length ? ` (${diOggi(acquisti).length})` : ""}</button>`).join("");
+  ({ carta: viewCarta, giornata: viewGiornata })[tab]();
+}
+function vai(t) { tab = t; render(); }
+
+// ---------- CARTA: cerchi o fotografi, e vedi i prezzi ----------
+let q = "", risultati = null, scelta = null, offerte = null, errore = "", attesa = false, timer = null;
+let nRicerca = 0, nApertura = 0;               // contatori: vince sempre l'ultima richiesta partita
+
+async function cerca(testo) {
+  q = testo;
+  clearTimeout(timer);
+  if (testo.trim().length < 3) { risultati = null; return disegnaRisultati(); }
+  const mio = ++nRicerca;
+  timer = setTimeout(async () => {
+    try {
+      const r = await api("/api/find?q=" + encodeURIComponent(testo));
+      if (mio !== nRicerca) return;            // hai continuato a scrivere: questa risposta è vecchia
+      risultati = r; errore = "";
+    } catch (e) { if (mio === nRicerca) errore = e.message; }
+    if (tab === "carta" && mio === nRicerca) disegnaRisultati();
   }, 250);
 }
-async function scanApri(id) {
-  scanSel = scanRes?.cards.find(c => c.id === id) || scanSel;
-  scanOffers = null; scanErr = ""; scanBusy = true;
-  viewScan();
-  try { scanOffers = await api("/api/offers?bp=" + id); }
-  catch (e) { scanErr = e.message; }
-  scanBusy = false;
-  // la carta guardata finisce nella lista di giornata
-  if (scanSel && !viste.some(v => v.id === scanSel.id)) {
-    viste.unshift({ id: scanSel.id, name: scanSel.name, version: scanSel.version, exp: scanSel.exp,
-      trend: scanSel.prezzi?.trend ?? null, ct: scanOffers?.offerte?.[0]?.da ?? null });
-    salvaViste();
+async function apri(id) {
+  scelta = risultati?.cards.find(c => c.id === id) || scelta;
+  offerte = null; errore = ""; attesa = true;
+  const mio = ++nApertura;
+  viewCarta();
+  try {
+    const o = await api("/api/offers?bp=" + id);
+    if (mio !== nApertura) return;             // nel frattempo hai aperto un'altra carta
+    offerte = o;
+  } catch (e) { if (mio === nApertura) errore = e.message; }
+  if (mio !== nApertura) return;
+  attesa = false;
+  if (scelta) {
+    viste = [{ id: scelta.id, nome: scelta.name, exp: scelta.exp, version: scelta.version, giorno: oggi(),
+      da: offerte?.offerte?.[0]?.da ?? null, cm: scelta.prezzi?.trend ?? null },
+      ...viste.filter(v => v.id !== scelta.id)].slice(0, 80);
+    salva("viste", viste);
   }
-  if (tab === "scan") viewScan();
+  if (tab === "carta") viewCarta();
 }
-function scanIndietro() { scanSel = null; scanOffers = null; scanErr = ""; viewScan(); }
+function indietro() { scelta = null; offerte = null; errore = ""; viewCarta(); }
 
-// offerte raggruppate come servono davanti al banchetto: prima l'italiano, poi l'inglese
+// il prezzo che conta: la più economica Near Mint, nella lingua che hai in mano
+let linguaScelta = "it", reverseScelto = false;
+const miglior = (lang, rev) => (offerte?.offerte || [])
+  .filter(o => o.lang === lang && o.reverse === rev && o.cond === "Near Mint")
+  .sort((a, b) => a.da - b.da)[0] || null;
+
+// Il prezzo grande è quello della carta che hai in mano: lingua e reverse li scegli tu con
+// due tocchi. Le altre combinazioni restano sotto, per confronto.
+function scegli(lang, rev) { linguaScelta = lang; reverseScelto = rev; viewCarta(); }
+function prezziPrincipali() {
+  const nm = miglior(linguaScelta, reverseScelto);
+  const altre = [];
+  for (const lang of ["it", "en"]) for (const rev of [false, true]) {
+    if (lang === linguaScelta && rev === reverseScelto) continue;
+    const o = miglior(lang, rev);
+    if (o) altre.push({ eti: `${LANG_FLAG[lang]} ${LANG_NAME[lang]}${rev ? " reverse" : ""} Near Mint`, val: o.da, n: o.n });
+  }
+  return { nm, altre };
+}
+
 function offerteHtml() {
-  if (scanBusy) return '<div class="msg">Chiedo a CardTrader…</div>';
-  if (scanErr) return `<div class="msg err">${esc(scanErr)}</div>`;
-  if (!scanOffers?.offerte?.length) return '<div class="msg">Nessuna offerta su CardTrader in questo momento.</div>';
-  const ordine = ["it", "en", "de", "fr", "es", "pt"];
+  if (attesa) return '<div class="msg">Chiedo a CardTrader…</div>';
+  if (errore) return `<div class="msg err">${esc(errore)}</div>`;
+  if (!offerte?.offerte?.length) return '<div class="msg">Nessuno la vende in questo momento su CardTrader.</div>';
+  const ordine = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };
   const gruppi = [];
-  for (const lang of [...ordine, ...new Set(scanOffers.offerte.map(o => o.lang))]) {
+  for (const lang of [...new Set([...["it", "en", "de", "fr", "es", "pt"], ...offerte.offerte.map(o => o.lang)])]) {
     for (const rev of [false, true]) {
-      const g = scanOffers.offerte.filter(o => o.lang === lang && o.reverse === rev);
-      if (!g.length || gruppi.some(x => x.lang === lang && x.rev === rev)) continue;
-      const ordine = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };   // dalla migliore alla peggiore
-      g.sort((a, b) => ordine(a.cond) - ordine(b.cond));
-      gruppi.push({ lang, rev, g });
+      const g = offerte.offerte.filter(o => o.lang === lang && o.reverse === rev).sort((a, b) => ordine(a.cond) - ordine(b.cond));
+      if (g.length) gruppi.push({ lang, rev, g });
     }
   }
   const blocco = ({ lang, rev, g }) => `<div style="margin-bottom:10px">
       <div><b>${LANG_FLAG[lang] || ""} ${esc(LANG_NAME[lang] || lang)}</b>${rev ? ' <span class="tag">reverse</span>' : ""}</div>
-      ${g.map(o => `<div class="row" style="justify-content:space-between;gap:8px">
-        <span>${esc(COND_IT[o.cond] || o.cond)}</span>
-        <span><b>${eur(o.da)}</b> <span class="small muted">${o.n} ${o.n === 1 ? "offerta" : "offerte"}</span></span></div>`).join("")}
-    </div>`;
+      ${g.map(o => `<div class="prezzo"><span>${esc(COND_IT[o.cond] || o.cond)}</span>
+        <span><b>${eur(o.da)}</b> <span class="small muted">${o.n}</span></span></div>`).join("")}</div>`;
   let primi = gruppi.filter(x => x.lang === "it" || x.lang === "en");
   let altri = gruppi.filter(x => x.lang !== "it" && x.lang !== "en");
-  // carta giapponese o venduta solo in altre lingue: si mostra tutto, non una tendina vuota
-  if (!primi.length) { primi = altri; altri = []; }
+  if (!primi.length) { primi = altri; altri = []; }     // carte giapponesi: si mostra quello che c'è
   return primi.map(blocco).join("") +
     (altri.length ? `<details><summary class="small muted">altre lingue (${altri.length})</summary>${altri.map(blocco).join("")}</details>` : "");
 }
 
-function viewScan(soloRisultati) {
-  const box = `<div class="panel">
-      <input id="sq" placeholder="Nome della carta, o nome e numero" value="${esc(scanQ)}"
-        style="width:100%;font-size:17px;padding:10px" oninput="scanCerca(this.value)" autocomplete="off">
-      <div class="note">Cerca tra tutte le carte con un prezzo. Esempi: «charizard ex 199», «umbreon vmax», «pikachu 58/102».</div>
-    </div>`;
+// registra l'acquisto: un tocco, il prezzo, e il totale della giornata si aggiorna
+function presa() {
+  if (!scelta) return;
+  const p = num(prompt(`Quanto l'hai pagata? (€)\n${scelta.name}`, ""));
+  if (!(p >= 0) || !isFinite(p)) return;                  // solo una cifra scritta da te
+  const nm = miglior(linguaScelta, reverseScelto);
+  acquisti = [{ id: scelta.id, nome: scelta.name, exp: scelta.exp, version: scelta.version, prezzo: p,
+    lang: linguaScelta, reverse: reverseScelto, giorno: oggi(), at: new Date().toISOString(),
+    ct: nm?.da ?? null, cm: scelta.prezzi?.trend ?? null }, ...acquisti];
+  salva("acquisti", acquisti);
+  vai("giornata");
+}
 
-  if (scanSel) {
-    const c = scanSel, p = c.prezzi || {};
-    const listino = scanRes?.listino ? ddmm(scanRes.listino) : "";
-    $("#view").innerHTML = `<div class="panel">
-        <button class="b" onclick="scanIndietro()">← altra carta</button>
-        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
-          ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:150px;border-radius:8px">` : ""}
-          <div style="flex:1;min-width:220px">
-            <div style="font-size:19px"><b>${esc(c.name)}</b></div>
-            <div class="muted">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div>
-            <div class="note">Controlla che sia questa: stesso nome, stessa espansione, stesso numero.</div>
+function viewCarta() {
+  if (scelta) {
+    const c = scelta, p = c.prezzi || {}, { nm, altre } = prezziPrincipali();
+    $("#view").innerHTML = `
+      <div class="panel">
+        <button class="b" onclick="indietro()">← altra carta</button>
+        <div style="display:flex;gap:14px;margin-top:10px">
+          ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:120px;border-radius:8px">` : ""}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:18px"><b>${esc(c.name)}</b></div>
+            <div class="muted small">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div>
+            <div class="note">Controlla che sia questa: stessa espansione, stesso numero.</div>
           </div>
         </div>
       </div>
       <div class="panel">
-        <b>In vendita ora su CardTrader</b>
-        <div class="note" style="margin-top:2px">Prezzi richiesti in questo momento, per lingua e condizione. CardTrader mostra le 25 offerte più economiche: se mancano le Near Mint, vuol dire che sotto ci sono solo copie giocate.</div>
-        <div style="margin-top:10px">${offerteHtml()}</div>
-        <a class="b" href="${esc(scanOffers?.url || ("https://www.cardtrader.com/cards/" + c.id))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px">Apri su CardTrader</a>
+        <div class="row" style="gap:6px;margin-bottom:10px">
+          ${["it", "en"].map(l => `<button class="b ${linguaScelta === l ? "p" : ""}" onclick="scegli('${l}', ${reverseScelto})">${LANG_FLAG[l]} ${LANG_NAME[l]}</button>`).join("")}
+          <button class="b ${reverseScelto ? "p" : ""}" onclick="scegli('${linguaScelta}', ${!reverseScelto})">reverse</button>
+        </div>
+        ${nm ? `<div class="big">${eur(nm.da)}</div>
+          <div class="muted">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])}${reverseScelto ? " reverse" : ""} Near Mint · la più economica in vendita ora (${nm.n} offerte)</div>
+          ${altre.map(r => `<div class="prezzo"><span>${esc(r.eti)}</span><b>${eur(r.val)}</b></div>`).join("")}`
+          : `<div class="msg">${attesa ? "Chiedo a CardTrader…" : "Nessuna Near Mint così in vendita ora: guarda sotto le altre condizioni."}</div>`}
+        <button class="b p big" style="margin-top:12px" onclick="presa()">L'ho presa: segna il prezzo</button>
       </div>
       <div class="panel">
-        <b>Cardmarket</b> <span class="small muted">listino del ${esc(listino)}</span>
-        ${c.cm == null ? '<div class="msg">Questa carta non ha un prezzo Cardmarket (spesso le giapponesi).</div>' : `
-        <div class="stats" style="margin-top:10px">
-          <div><b>${eur(p.trend)}</b><span>Trend</span></div>
-          <div><b>${eur(p.avg30)}</b><span>Media 30 giorni</span></div>
-          ${p.trendHolo ? `<div><b>${eur(p.trendHolo)}</b><span>Trend reverse</span></div>` : ""}
-          ${p.avg30Holo ? `<div><b>${eur(p.avg30Holo)}</b><span>Media 30 g. reverse</span></div>` : ""}
-        </div>`}
+        <b>Tutte le offerte su CardTrader</b>
+        <div class="note" style="margin-top:2px">Prezzi richiesti adesso. CardTrader mostra le 25 più economiche: se mancano le Near Mint, sotto ci sono solo copie giocate.</div>
+        <div style="margin-top:10px">${offerteHtml()}</div>
+        <a class="b" href="${esc(offerte?.url || ("https://www.cardtrader.com/cards/" + c.id))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">Apri su CardTrader</a>
+      </div>
+      <div class="panel">
+        <b>Cardmarket</b> <span class="small muted">listino del ${esc(ddmm(risultati?.listino))}</span>
+        ${c.cm == null ? '<div class="msg">Cardmarket non prezza questa carta (spesso le giapponesi).</div>' : `
+          <div class="prezzo"><span>Trend</span><b>${eur(p.trend)}</b></div>
+          <div class="prezzo"><span>Media 30 giorni</span><b>${eur(p.avg30)}</b></div>
+          ${p.trendHolo ? `<div class="prezzo"><span>Trend reverse</span><b>${eur(p.trendHolo)}</b></div>` : ""}
+          ${p.avg30Holo ? `<div class="prezzo"><span>Media 30 g. reverse</span><b>${eur(p.avg30Holo)}</b></div>` : ""}`}
       </div>`;
     return;
   }
-
-  const righe = !scanRes ? "" : scanRes.cards.length
-    ? `<div class="scroll">${scanRes.cards.map(c => `<div class="row" style="gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="scanApri(${c.id})">
-        ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:42px;border-radius:4px">` : ""}
-        <div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="small muted">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div></div>
-        <div style="text-align:right">${c.prezzi?.trend ? `<b>${eur(c.prezzi.trend)}</b><div class="small muted">Cardmarket</div>` : '<span class="small muted">senza prezzo</span>'}</div>
-      </div>`).join("")}
-      ${scanRes.totale > scanRes.cards.length ? `<div class="note">Trovate ${scanRes.totale} carte, mostrate le prime ${scanRes.cards.length}: aggiungi il numero per restringere.</div>` : ""}</div>`
-    : '<div class="msg">Nessuna carta con questo nome.</div>';
-
-  const lista = viste.length ? `<div class="panel"><b>Carte guardate oggi (${viste.length})</b>
-      ${viste.map(v => `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0">
-        <span>${esc(v.name)} <span class="small muted">${esc(v.exp || "")}${v.version ? " · " + esc(v.version) : ""}</span></span>
-        <span class="small">${v.ct != null ? "CardTrader da <b>" + eur(v.ct) + "</b>" : ""}${v.trend ? " · CM " + eur(v.trend) : ""}</span></div>`).join("")}
-      <div class="row" style="margin-top:8px"><button class="b" onclick="viste.length=0;salvaViste();viewScan()">Svuota la lista</button></div></div>` : "";
-
-  if (soloRisultati && $("#scanres")) { $("#scanres").innerHTML = righe; return; }
-  $("#view").innerHTML = box + `<div class="panel" id="scanres">${righe}</div>` + lista;
-  const i = $("#sq");
-  if (i && scanQ) { i.focus(); i.setSelectionRange(scanQ.length, scanQ.length); }
-}
-
-// --- Perito: incolli il testo di un annuncio e ti dice cosa c'e' dentro e quanto vale ---
-let lastAppraise = null;
-
-// Bookmarklet: gira nel browser dell'utente, sulla pagina che ha gia' aperto lui.
-// Non interroga nessun sito: legge il documento davanti ai suoi occhi e lo passa all'app.
-// E' il copia-incolla in un clic, non uno scraper.
-const BOOKMARKLET = "javascript:(function(){try{var d=document,"
-  + "m=(d.querySelector('meta[name=description]')||{}).content||'',"
-  + "b=(d.body.innerText||'').replace(/\\s+/g,' ').slice(0,4000),"
-  + "i=[].slice.call(d.images).filter(function(x){return x.naturalWidth>150}).map(function(x){return x.src}).slice(0,10),"
-  + "s=btoa(unescape(encodeURIComponent(JSON.stringify({t:d.title,m:m,b:b,i:i,u:location.href}))));"
-  + "window.open('http://localhost:8000/#perito='+encodeURIComponent(s),'_blank')}"
-  + "catch(e){alert('Perito: '+e.message)}})()";
-
-function viewPerito() {
   $("#view").innerHTML = `
     <div class="panel">
-      <div class="row" style="align-items:center">
-        <label style="display:inline-block;cursor:pointer;padding:12px 20px;font-size:16px;color:#fff;background:var(--acc);border-radius:8px">📷 Scansiona una carta
-          <input type="file" accept="image/*" id="pscan" style="display:none" onchange="scanFile(this.files[0]); this.value=''"></label>
-        <span id="pscanmsg" class="muted"></span>
-      </div>
-      <div class="note">Fotografa la carta <b>dritta, da vicino, che riempia quasi tutta la foto</b>, senza riflessi sul numero in basso.
-        Sul telefono puoi scattare o scegliere dalla galleria; sul computer scegli un'immagine.</div>
-    </div>
-    <div class="panel">
-      <label style="width:100%">${lastAppraise?.scanned
-        ? "Testo letto dalla foto — se nome o numero sono sbagliati, correggili e premi «Valuta»"
-        : "Incolla qui il testo dell'annuncio (titolo e descrizione)"}
-        <textarea id="ptext" rows="5" style="font:inherit;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);width:100%"
-          placeholder="Es: Charizard ex 199/165 near mint italiano">${esc(lastAppraise?.text || "")}</textarea></label>
-      ${lastAppraise?.numberMissing ? `<div class="warn" style="margin-top:8px">⚠️ Non riesco a leggere il numero in basso sulla carta (succede spesso sulle carte a illustrazione intera).
-        <b>Scrivilo tu nella casella</b>, per esempio <code>199/165</code>, e premi «Valuta»: con nome e numero trovo la carta esatta.</div>` : ""}
+      <input id="q" placeholder="Nome della carta, o nome e numero" value="${esc(q)}"
+        style="width:100%;font-size:17px" oninput="cerca(this.value)" autocomplete="off" enterkeyhint="search">
       <div class="row" style="margin-top:10px">
-        <label>Prezzo chiesto €<input type="number" id="pask" step="1" min="0" value="${lastAppraise?.ask ?? ""}"></label>
-        <button class="b p" id="pgo" onclick="doAppraise()">Valuta</button>
+        <label class="b" style="cursor:pointer">📷 Foto della carta
+          <input type="file" accept="image/*" id="foto" style="display:none" onchange="scanFile(this.files[0]); this.value=''"></label>
+        <span id="pscanmsg" class="small muted"></span>
       </div>
-      <div class="note">Il link non posso scaricarlo io: Vinted e Subito non lo permettono. Ma con il pulsante qui sotto fai tutto in un clic.</div>
+      <div class="note">Scrivi tre lettere del nome: «charizard 199», «umbreon vmax», «pikachu 58/102». La foto è più lenta e sbaglia più spesso.</div>
     </div>
-    <div class="panel">
-      <b>Pulsante «Valuta annuncio»</b>
-      <p style="margin:8px 0"><a id="bml" href="#" onclick="return false" style="display:inline-block;padding:8px 16px;background:var(--acc);color:#fff;border-radius:7px;text-decoration:none;cursor:grab">📕 Valuta annuncio</a></p>
-      <div class="note"><b>Come si installa, una volta sola:</b> trascina il pulsante qui sopra nella barra dei preferiti del browser (se non la vedi, premi Ctrl+Shift+B).<br>
-      <b>Come si usa:</b> apri un annuncio su Vinted, Subito, eBay o qualsiasi altro sito, e clicca «Valuta annuncio» nei preferiti. L'app si apre con titolo, descrizione e foto già caricati.<br>
-      Funziona solo con il server acceso. Legge la pagina che hai già aperto tu: non interroga nessun sito e non fa richieste automatiche.</div>
-    </div>
-    ${lastAppraise?.images?.length ? `<div class="panel"><b>${lastAppraise.scanned ? "Foto della carta" : "Foto dell'annuncio"}</b>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${lastAppraise.images.map(s => `<a href="${esc(s)}" target="_blank" rel="noopener"><img src="${esc(s)}" style="height:130px;border-radius:6px;border:1px solid var(--line)"></a>`).join("")}</div>
-      <div class="note">Guarda i bordi e gli angoli: bianco sui bordi, graffi o angoli smussati fanno crollare il valore. ${lastAppraise.url ? `<a href="${esc(lastAppraise.url)}" target="_blank" rel="noopener">Torna all'annuncio</a>` : ""}</div></div>` : ""}
-    <div id="pout">${lastAppraise?.html || ""}</div>`;
-  const a = $("#bml"); if (a) a.setAttribute("href", BOOKMARKLET);
+    <div class="panel" id="lista">${listaHtml()}</div>
+    ${memoriaRotta ? '<div class="panel err small">Questo telefono non sta salvando la lista: se chiudi la pagina perdi gli acquisti segnati.</div>' : ""}
+    ${diOggi(acquisti).length ? `<div class="panel"><b>Oggi hai speso ${eur(spesoOggi())}</b> <span class="small muted">su ${diOggi(acquisti).length} carte</span></div>` : ""}`;
+  const i = $("#q");
+  if (i && q) { i.focus(); i.setSelectionRange(q.length, q.length); }
+}
+function listaHtml() {
+  if (errore) return `<div class="msg err">${esc(errore)}</div>`;
+  if (!risultati) return '<div class="msg">Cerca una carta, o scattale una foto.</div>';
+  if (!risultati.cards.length) return '<div class="msg">Nessuna carta con questo nome.</div>';
+  return risultati.cards.map(c => `<div class="ris" onclick="apri(${c.id})">
+      ${c.img ? `<img src="${esc(c.img)}" alt="">` : ""}
+      <div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="small muted">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div></div>
+      <div style="text-align:right">${c.prezzi?.trend ? `<b>${eur(c.prezzi.trend)}</b><div class="small muted">Cardmarket</div>` : '<span class="small muted">senza prezzo</span>'}</div>
+    </div>`).join("") +
+    (risultati.totale > risultati.cards.length ? `<div class="note">Trovate ${risultati.totale}: aggiungi il numero per restringere.</div>` : "");
+}
+function disegnaRisultati() { if ($("#lista")) $("#lista").innerHTML = listaHtml(); else viewCarta(); }
+
+// ---------- GIORNATA: lo scatolone, quello che hai preso, quanto hai speso ----------
+let lotto = carica("lotto", { carte: "", prezzo: "" });
+function lottoCalc(k, v) { lotto[k] = v; salva("lotto", lotto); disegnaLotto(); }
+function lottoHtml() {
+  const n = num(lotto.carte), p = num(lotto.prezzo);
+  if (!(n > 0) || !(p >= 0)) return '<div class="note">Scrivi quante carte ci sono e quanto vuole: ti dico quanto costa ogni carta.</div>';
+  const each = p / n;
+  const [cls, testo] = each <= 0.08 ? ["good", "Prezzo da sfuse: rischi poco anche se dentro non c'è niente."]
+    : each <= 0.30 ? ["warn", "Stai pagando la speranza: conviene solo se hai visto qualcosa di buono."]
+    : ["bad", "Caro per uno scatolone: prendilo solo se sai già cosa c'è dentro."];
+  return `<div class="big ${cls}">${eur(each)}</div><div class="muted">a carta</div><div class="small ${cls}" style="margin-top:6px">${testo}</div>`;
+}
+function disegnaLotto() { if ($("#lottoout")) $("#lottoout").innerHTML = lottoHtml(); }
+
+function annulla(i) {
+  if (!confirm(`Tolgo ${acquisti[i].nome} dagli acquisti di oggi?`)) return;
+  acquisti.splice(i, 1); salva("acquisti", acquisti); render();
+}
+function svuotaViste() { viste = []; salva("viste", viste); render(); }
+function copiaGiornata() {
+  const righe = diOggi(acquisti).map(a => `${a.nome}${a.exp ? " (" + a.exp + ")" : ""} — pagata ${eur(a.prezzo)}${a.ct ? ", in vendita da " + eur(a.ct) : ""}`);
+  const testo = `Carte prese il ${new Date().toLocaleDateString("it-IT")}\n` + righe.join("\n") + `\nTotale speso ${eur(spesoOggi())}`;
+  navigator.clipboard?.writeText(testo).then(() => alert("Copiato: puoi incollarlo dove vuoi."), () => alert(testo));
 }
 
+// da una carta guardata si torna ai suoi prezzi senza riscrivere il nome
+async function riapri(id) {
+  const v = viste.find(x => x.id === id);
+  if (!v) return;
+  scelta = { id: v.id, name: v.nome, exp: v.exp, version: v.version, img: null, cm: null, prezzi: null };
+  tab = "carta";
+  await apri(id);
+  render();
+}
+
+function viewGiornata() {
+  const oggiAcq = diOggi(acquisti);
+  $("#view").innerHTML = `
+    <div class="panel">
+      <b>Scatolone o lotto</b>
+      <div class="row" style="margin-top:8px">
+        <label class="small muted">quante carte<br><input type="number" inputmode="numeric" value="${esc(lotto.carte)}" style="width:110px" oninput="lottoCalc('carte', this.value)"></label>
+        <label class="small muted">quanto vuole €<br><input type="number" inputmode="decimal" value="${esc(lotto.prezzo)}" style="width:110px" oninput="lottoCalc('prezzo', this.value)"></label>
+      </div>
+      <div id="lottoout" style="margin-top:10px">${lottoHtml()}</div>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <b>Prese oggi (${oggiAcq.length})</b><span class="big">${eur(spesoOggi())}</span>
+      </div>
+      ${oggiAcq.length ? oggiAcq.map(a => {
+        const i = acquisti.indexOf(a);
+        return `<div class="prezzo"><span>${esc(a.nome)}<div class="small muted">${esc(a.exp || "")}${a.ct ? " · in vendita da " + eur(a.ct) : ""}</div></span>
+          <span><b>${eur(a.prezzo)}</b> <button class="b" onclick="annulla(${i})">✕</button></span></div>`;
+      }).join("") : '<div class="msg">Ancora niente. Quando prendi una carta, premi «L&#39;ho presa».</div>'}
+      ${oggiAcq.length ? `<button class="b" style="margin-top:10px" onclick="copiaGiornata()">Copia il riepilogo</button>` : ""}
+    </div>
+    ${viste.length ? `<div class="panel"><b>Carte guardate (${viste.length})</b>
+      ${viste.slice(0, 30).map(v => `<div class="prezzo" style="cursor:pointer" onclick="riapri(${v.id})">
+        <span>${esc(v.nome)} <span class="small muted">${esc(v.exp || "")}${v.version ? " · " + esc(v.version) : ""}</span></span>
+        <span class="small">${v.da != null ? "da <b>" + eur(v.da) + "</b>" : ""}</span></div>`).join("")}
+      <button class="b" style="margin-top:10px" onclick="svuotaViste()">Svuota</button></div>` : ""}`;
+}
+
+// ---------- lettore foto (Tesseract nel browser) ----------
+// ===== lettore foto: preparazione, ritagli e aiuti OCR =====
 // --- Scanner: legge nome e numero da una foto della carta ---
 // Non serve riconoscere il disegno: su ogni carta sono stampati il nome (in alto) e il
 // numero (in basso, "125/128"). Letti quelli, il perito sa gia' trovare carta e prezzo, e
@@ -437,6 +386,7 @@ function cropPx(img, x0, y0, x1, y1, k, invert) {
   return c;
 }
 
+// ===== lettore foto: scanImage =====
 async function scanImage(src) {
   const msg = t => { const el = $("#pscanmsg"); if (el) el.textContent = t; };
   try {
@@ -499,736 +449,40 @@ async function scanImage(src) {
     const fullText = fixEx(fixSlash(whole.text || ""));
     // la barra letta come "1" o "7" ("41100" per 4/100) la ripara il server, che conosce i denominatori veri
     const found = hasNumber(number) || hasNumber(fullText) || /\b\d{1,3}[17]\d{2,3}\b/.test(number);
-    lastAppraise = { text: [cleanOcr(name), cleanOcr(number), cleanOcr(fullText)].filter(Boolean).join("\n"), body: "",
-      url: "", images: [src], html: "", scanned: true, numberMissing: !found };
-    viewPerito();
-    await doAppraise();
+    // la carta letta si cerca come se l'avessi scritta a mano
+    const testo = [cleanOcr(name), cleanOcr(number), cleanOcr(fullText)].filter(Boolean).join("\n");
+    await usaLettura(testo, !found, src);
   } catch (e) { msg("Errore: " + e.message); }
 }
 
-// Il bookmarklet apre l'app con i dati dell'annuncio nell'ancora (#perito=...),
-// che resta nel browser e non viene mai inviata al server.
-function readBookmarkletHash() {
-  const m = location.hash.match(/#perito=(.+)$/);
-  if (!m) return false;
+// dalla foto arriva del testo: il server riconosce la carta, poi si cerca come se l'avessi scritta
+async function usaLettura(testo, numeroMancante, src) {
+  const msg = t => { const el = $("#pscanmsg"); if (el) el.textContent = t; };
+  msg("Riconosco la carta…");
   try {
-    const p = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
-    // titolo e descrizione nella casella; il resto della pagina resta da parte, serve
-    // solo come ripiego per trovare numero e prezzo
-    lastAppraise = { text: [p.t, p.m].filter(Boolean).join("\n"), body: p.b || "", images: p.i || [], url: p.u, html: "" };
-    history.replaceState(null, "", location.pathname);   // pulisce la barra degli indirizzi
-    tab = "perito";
-    return true;
-  } catch { return false; }
-}
-async function doAppraise() {
-  const text = $("#ptext").value.trim(), ask = parseFloat($("#pask").value);
-  if (!text) return;
-  $("#pgo").disabled = true;
-  $("#pout").innerHTML = '<div class="panel msg">Cerco la carta…</div>';
-  try {
-    const r = await fetch("/api/appraise", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, body: lastAppraise?.body || "", url: lastAppraise?.url || "", ask: ask > 0 ? ask : null, scan: !!lastAppraise?.scanned }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || r.status);
-    if (d.askAuto && d.ask) $("#pask").value = d.ask;           // prezzo letto dall'annuncio
-    lastAppraise = { ...lastAppraise, text, ask: d.ask ?? ask, html: appraiseHtml(d) };
-    if (lastAppraise.scanned) {
-      // dopo una scansione il numero "manca" se il server non ha trovato la carta con certezza:
-      // e' il risultato vero a decidere, non il fatto che nel testo letto ci fossero delle cifre
-      const missing = !d.card || !!d.card.uncertain;
-      if (missing !== !!lastAppraise.numberMissing) { lastAppraise.numberMissing = missing; return viewPerito(); }
+    const r = await api("/api/appraise", { method: "POST", body: JSON.stringify({ text: testo, scan: true }) });
+    const c = r.card;
+    if (c?.name && !c.uncertain) {
+      msg("");
+      q = c.name + (c.number ? " " + c.number : "");
+      await cerca(q);
+      viewCarta();
+      return;
     }
-    $("#pout").innerHTML = lastAppraise.html;
-  } catch (e) { $("#pout").innerHTML = `<div class="panel msg err">Errore: ${esc(e.message)}</div>`; }
-  $("#pgo").disabled = false;
+  } catch (e) { /* se il server non riconosce nulla si passa alla ricerca a mano */ }
+  // carta non riconosciuta con certezza: meglio farti scegliere tu dalla lista
+  // niente carta: si mette nella ricerca quello che si è letto, così basta correggere
+  const nome = (testo.split("\n")[0] || "").trim();
+  q = nome;
+  viewCarta();
+  const el = $("#pscanmsg");
+  if (el) el.textContent = numeroMancante
+    ? "Non ho letto il numero: scrivilo accanto al nome (es. 199/165)."
+    : "Non ho riconosciuto la carta: controlla il nome qui sopra.";
+  if (nome) await cerca(nome);
 }
 
-const FLAG_STYLE = { danger: "bad", warn: "warn", info: "muted" };
-const FLAG_ICON = { danger: "⛔", warn: "⚠️", info: "ℹ️" };
-
-function appraiseHtml(d) {
-  const flags = d.flags.length ? `<div class="panel">${d.flags.map(f =>
-    `<div class="${FLAG_STYLE[f.level]}" style="margin:4px 0">${FLAG_ICON[f.level]} ${esc(f.msg)}</div>`).join("")}</div>` : "";
-
-  const buy = d.buy ? `<div class="note">Ti costa <b>${eur(d.buy.total)}</b>: ${eur(d.buy.price)} di prezzo
-    ${d.buy.fee ? `+ ${eur(d.buy.fee)} di protezione acquisti Vinted ` : ""}+ circa ${eur(d.buy.ship)} di spedizione.
-    ${d.askAuto ? ' <span class="warn">Prezzo letto dall\'annuncio: controlla che sia giusto.</span>' : ""}</div>` : "";
-
-  // --- carta singola riconosciuta con precisione ---
-  if (d.kind === "single" && d.card) {
-    const c = d.card;
-    const best = d.resale?.reduce((a, b) => b.profit > a.profit ? b : a);
-    let head;
-    if (!d.ask) head = `<b class="muted">Metti il prezzo chiesto</b><span>per sapere se conviene</span>`;
-    else if (d.resaleBlocked) head = `<b class="bad">Attenzione</b><span>leggi gli avvisi qui sopra</span>`;
-    else if (!best) head = `<b class="muted">Nessun prezzo</b><span>Cardmarket non ha vendite recenti</span>`;
-    else if (best.profit <= 0) head = `<b class="bad">Non conviene</b><span>ci perdi anche nel caso migliore</span>`;
-    else if (best.roi < 0.2) head = `<b class="warn">Margine sottile</b><span>al massimo ${eur(best.profit)} su ${best.platform}</span>`;
-    else head = `<b class="good">Conviene</b><span>fino a ${eur(best.profit)} (${pct(best.roi)}) su ${best.platform}</span>`;
-
-    const resale = d.resale ? `<table style="margin-top:10px"><thead><tr><th class="l">Rivendi su</th><th>Incassi netto</th><th>Guadagno</th></tr></thead><tbody>
-      ${d.resale.map(r => `<tr><td class="l">${r.platform}</td><td>${eur(r.net)}</td><td class="${cls(r.profit)}"><b>${eur(r.profit)}</b> <small class="muted">${pct(r.roi)}</small></td></tr>`).join("")}
-      </tbody></table>` : d.resaleBlocked ? `<div class="note bad">${esc(d.resaleBlocked)}</div>` : "";
-
-    return `${flags}
-      <div class="panel"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
-        ${c.image ? `<img src="${esc(c.image)}" alt="" style="width:150px;border-radius:8px">` : ""}
-        <div style="flex:1;min-width:240px">
-          <div style="font-size:18px"><b>${esc(c.name)}</b>${c.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
-          <div class="muted">${esc(c.set)} · #${esc(c.number)} · ${esc(c.rarity || "")}</div>
-          <div class="stats" style="margin-top:12px">
-            <div><b>${eur(c.value)}</b><span>Valore prudente${c.valueIt != null && c.value === c.valueIt ? " (italiana)" : ""}</span></div>
-            <div>${head}</div>
-          </div>
-          ${c.valueNote ? `<div class="note warn">${esc(c.valueNote)} <b>Lingua ${esc(c.langBasis || "")}.</b></div>` : ""}
-          <div class="note">Listino: il più basso tra trend Cardmarket (${eur(c.trend)}) e media delle vendite a 30 giorni (${eur(c.avg30)}).
-            <a href="${esc(c.cardmarketUrl)}" target="_blank" rel="noopener">Verifica su Cardmarket</a></div>
-          ${buy}${resale}
-          ${d.resale ? `<div class="note">Guadagno già al netto delle commissioni di vendita (Cardmarket 5%, CardTrader 5,3% + IVA, Vinted 0%). Il valore è quello di una carta Near Mint: se è segnata vale meno.</div>` : ""}
-        </div></div></div>`;
-  }
-
-  // --- nomi citati senza numero: forbice ---
-  const names = d.names?.length ? `<div class="panel scroll"><b>${d.kind === "lot" ? "Carte citate nell'annuncio" : "Nomi riconosciuti"}</b>
-    <table style="margin-top:8px"><thead><tr><th class="l">Carta</th><th>Realistico</th><th>Massimo</th></tr></thead><tbody>
-    ${d.names.map(n => `<tr class="${n.worthChecking ? "" : "muted"}"><td class="l">${n.worthChecking ? "🔍 " : ""}<b>${esc(n.name)}</b> <small class="muted">${n.versions} versioni</small></td>
-      <td>${eur(n.likely)}</td><td>${eur(n.max)}</td></tr>`).join("")}</tbody></table>
-    <div class="note">Senza numero di collezione non si sa quale versione sia: «realistico» è il valore delle versioni comuni, che sono quasi sempre quelle in circolazione.
-      🔍 = almeno un quarto delle versioni di quel nome vale più di 30 €: lì vale la pena guardare la foto.</div></div>` : "";
-
-  // --- lotto ---
-  if (d.kind === "lot") {
-    const l = d.lot || {};
-    return `${flags}<div class="panel"><div class="stats">
-        <div><b>${l.perCard != null ? eur(l.perCard) : "–"}</b><span>Prezzo per carta</span></div>
-        <div><b>${l.count ?? "?"}</b><span>Carte nel lotto</span></div>
-        <div><b>${d.buy ? eur(d.buy.total) : "–"}</b><span>Costo totale</span></div>
-      </div>
-      <div class="note">${l.verdict ? `<b>${esc(l.verdict)}</b><br>` : ""}${l.count ? "" : "Non trovo il numero di carte nell'annuncio: scrivilo nel testo (es. «200 carte») per il prezzo per carta.<br>"}
-      Le carte comuni sfuse valgono pochi centesimi l'una: il valore di un lotto sta tutto nelle poche carte buone, che si vedono solo dalle foto.</div>
-      ${buy}</div>${names}`;
-  }
-
-  // --- singola senza numero ---
-  return `${flags}${d.buy ? `<div class="panel">${buy}</div>` : ""}${names || '<div class="panel msg">Nessuna carta riconosciuta nel testo.</div>'}`;
-}
-
-// --- Affari: occasioni trovate dallo scanner su CardTrader ---
-let dealsData = null, scanPoll = null;
-// budget uguale al tetto dello scanner (maxBuy), altrimenti la pagina nasconde cio' che lo scanner trova
-const DEAL_DEFAULTS = { budget: 1000, minProfit: 1, sort: "fast", limit: 48, lang: "", country: "" };
-const dealPrefs = (() => {
-  try {
-    const p = { ...DEAL_DEFAULTS, ...JSON.parse(localStorage.getItem("deals") || "{}") };
-    if (p.budget === 80) p.budget = DEAL_DEFAULTS.budget;   // 80 era il vecchio default, non una scelta dell'utente
-    return p;
-  } catch { return { ...DEAL_DEFAULTS }; }
-})();
-const saveDealPrefs = () => { try { localStorage.setItem("deals", JSON.stringify(dealPrefs)); } catch {} };
-const LANG_NAME = { en: "Inglese", it: "Italiano", de: "Tedesco", fr: "Francese", es: "Spagnolo", pt: "Portoghese" };
-const LANG_FLAG = { en: "🇬🇧", it: "🇮🇹", de: "🇩🇪", fr: "🇫🇷", es: "🇪🇸", pt: "🇵🇹" };
-const FLAG = c => c ? String.fromCodePoint(...[...c.toUpperCase()].slice(0, 2).map(ch => 0x1f1a5 + ch.charCodeAt(0))) : "";
-const langTag = o => `<span class="tag">${LANG_FLAG[o.lang] || ""} ${esc(LANG_NAME[o.lang] || o.lang || "?")}</span>`;
-const ago = ms => ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min fa` : ms < 1728e5 ? `${Math.round(ms / 36e5)} ore fa` : `${Math.round(ms / 864e5)} giorni fa`;
-// spedizione d'acquisto calcolata dallo scanner coi metodi del venditore; 1,50 € solo per le
-// occasioni vecchie, precedenti al calcolo vero
-const shipOf = o => o.ship ?? 1.5;
-// rendimento vendendo subito, sulla stessa base di costo dello scanner (prezzo + spedizione)
-const fastRoi = o => o.profitFast / (o.buy + shipOf(o));
-// "nuova" = comparsa nell'ultima ora (la data la mette lo scanner la prima volta che la vede)
-const isNew = o => o.firstSeen && Date.now() - Date.parse(o.firstSeen) < 60 * 60 * 1000;
-
-async function viewDeals() {
-  $("#view").innerHTML = '<div class="panel"><div class="msg">Carico le occasioni…</div></div>';
-  let st;
-  try { [dealsData, st] = await Promise.all([api("/api/opportunities"), api("/api/scan")]); }
-  catch (e) { return $("#view").innerHTML = `<div class="panel msg err">Errore: ${esc(e.message)}</div>`; }
-  lastScan = st;
-  renderDeals(st);
-  pollScan();
-}
-
-// Riquadro in alto: ultimo aggiornamento, prossimo giro automatico, pulsante, avanzamento.
-function scanBox(st) {
-  const d = dealsData;
-  const when = d?.generatedAt ? `Aggiornate ${ago(Date.now() - Date.parse(d.generatedAt))}` : "Nessuna scansione ancora fatta";
-  const next = st.running ? "" : st.next
-    ? ` · prossimo giro ${st.next.mode} ${st.next.inMinutes ? "tra " + st.next.inMinutes + " min" : "a momenti"}`
-    : " · aggiornamento automatico spento";
-  const btn = st.running ? `<button class="b" disabled>Aggiornamento…</button>`
-    : st.waitMinutes > 0 ? `<button class="b" disabled>Aggiornate ora</button>`
-    : `<button class="b p" onclick="startScan()">🔄 Aggiorna ora</button>`;
-  return `<div class="row" style="align-items:center;justify-content:space-between">
-      <div><b style="font-size:16px">Occasioni su CardTrader</b><div class="small muted">${when}${next}</div></div>${btn}</div>
-    ${st.running ? `<div class="prog"><div style="width:${st.total ? Math.round(st.done / st.total * 100) : 2}%"></div></div>
-      <div class="small muted">Giro ${esc(st.mode || "")}: controllo ${st.done} di ${st.total || "…"} espansioni. ${st.mode === "completo" ? "Ci vogliono un paio di minuti: intanto puoi usare le altre sezioni." : ""}</div>` : ""}
-    ${st.error ? `<div class="small bad" style="margin-top:8px">⛔ L'ultimo giro non è riuscito: ${esc(st.error)}. I giri automatici riprendono tra 15 minuti.</div>` : ""}`;
-}
-
-function dealKey(o) {   // identica a keyOf in scanner.js
-  return `${o.url}|${o.seller}|${o.buy}|${o.reverse}|${o.lang}`;
-}
-function invCopies(key) {
-  return data.inventory.filter(it => it.key === key).length;
-}
-function blueprintId(url) {
-  const m = String(url || "").match(/\/cards\/(\d+)/);
-  return m ? +m[1] : null;
-}
-// proposta per la domanda "spedizione pagata": 0 se oggi hai gia' comprato dallo stesso venditore,
-// altrimenti quella calcolata dallo scanner. Il dato giusto resta quello della cassa.
-function shipGuess(o) {
-  const today = new Date().toISOString().slice(0, 10);
-  const already = data.inventory.some(it => it.src === "ct" && it.ct?.seller === o.seller && it.date === today);
-  return already ? 0 : shipOf(o);
-}
-function buyDeal(key) {
-  const o = (dealsData?.opportunities || []).find(x => dealKey(x) === key);
-  if (!o) return alert("Questa occasione non c'è più nell'ultima scansione: ricarica la sezione Affari.");
-  const n = invCopies(key);
-  if (n && !confirm(`${o.name} è già in inventario${n > 1 ? " (" + n + " copie)" : ""}. Aggiungere un'altra copia?`)) return;
-  const price = num(prompt(`Prezzo pagato per ${o.name} (€, spedizione esclusa):`, o.buy));
-  if (isNaN(price)) return;
-  const ship = num(prompt("Spedizione pagata (€):", shipGuess(o)));
-  if (isNaN(ship)) return;
-  data.inventory.push({
-    uid: Date.now(), src: "ct", date: new Date().toISOString().slice(0, 10),
-    buy: price, ship, sold: null, key,
-    ct: {
-      name: o.name, version: o.version || null, expansion: o.expansion,
-      reverse: !!o.reverse, lang: o.lang || null, seller: o.seller, country: o.country || null,
-      url: o.url, image: o.image || null, blueprintId: blueprintId(o.url),
-    },
-    est: {
-      at: dealsData.generatedAt, listed: o.buy, sell: o.sell, sellFast: o.sellFast,
-      profit: o.profit, profitFast: o.profitFast, cmTrend: o.cmTrend,
-      depth: o.depth, lonely: !!o.lonely, suspect: !!o.suspect,
-    },
-  });
-  save();
-  renderDeals(lastScan);
-}
-// Quanto e' solido il PREZZO di riferimento (non dice nulla su venditore, condizione o
-// autenticita': quelle restano da guardare a mano). Tre cose lo rendono debole:
-//  - poche offerte nella lingua della carta;
-//  - CardTrader e Cardmarket che dicono cose molto diverse;
-//  - Cardmarket in disaccordo con se' stesso, trend contro media delle vendite a 30 giorni
-//    (Seismitoad Illustration Rare, 26/09/2026: trend 522 € ma media 247 €, set appena uscito).
-function solidity(o) {
-  const perche = [];
-  const rap = (a, b) => a > 0 && b > 0 ? Math.max(a, b) / Math.min(a, b) : null;
-  const fonti = rap(o.market, o.cmTrend);
-  const dentroCm = rap(o.cmT, o.cmA);
-  if (o.depth < 7) perche.push(`solo ${o.depth} offerte`);
-  else perche.push(`${o.depth} offerte`);
-  if (fonti != null && fonti > 2) perche.push("CardTrader e Cardmarket in disaccordo");
-  else if (fonti != null && fonti <= 1.5) perche.push("fonti d'accordo");
-  if (dentroCm == null) perche.push("Cardmarket ha un solo dato");
-  else if (dentroCm > 2) perche.push("prezzo Cardmarket instabile");
-  const debole = o.lonely || o.suspect || o.depth < 7 || (fonti != null && fonti > 2) || (dentroCm != null && dentroCm > 2);
-  const forte = !debole && o.depth >= 10 && fonti != null && fonti <= 1.5 && dentroCm != null && dentroCm <= 1.3;
-  return { livello: debole ? "poco solido" : forte ? "solido" : "abbastanza solido",
-    classe: debole ? "bad" : forte ? "good" : "warn", perche: perche.join(", ") };
-}
-
-function dealCard(o) {
-  const risky = o.lonely || o.suspect;
-  const sol = solidity(o);
-  const key = dealKey(o);
-  const copies = invCopies(key);
-  return `<div class="deal${risky ? " risky" : ""}">
-    <a class="dimg" href="${esc(o.url)}" target="_blank" rel="noopener">${o.image
-      ? `<img src="${esc(o.image)}" alt="${esc(o.name)}" loading="lazy">` : '<span class="small muted">nessuna immagine</span>'}</a>
-    <div>${isNew(o) ? '<span class="tag" style="background:var(--acc)">NUOVA</span> ' : ""}${copies ? '<span class="tag">IN INVENTARIO</span> ' : ""}${data.watchlist.some(w => w.card?.idProduct === o.cmId) ? '<span class="tag">★ SEGUITA</span> ' : ""}${langTag(o)} <b>${esc(o.name)}</b>${o.reverse ? ' <span class="tag">reverse</span>' : ""}</div>
-    <div class="small muted">${esc(o.expansion)}${o.version ? " · " + esc(o.version) : ""} · Near Mint</div>
-    <div style="margin-top:6px">Paghi <b>${eur(o.buy + shipOf(o))}</b> <span class="small muted">tutto incluso${o.shipUnknown ? " (stimato)" : ""}</span> → rivendi a <b>${eur(o.sellFast)}</b></div>
-    <div class="dprof"><b class="${cls(o.profitFast)}">Guadagni ${eur(o.profitFast)}</b></div>
-    <div class="small"><span class="${sol.classe}">Prezzo ${sol.livello}</span> <span class="muted">(${esc(sol.perche)})</span></div>
-    ${o.shipUnknown ? '<div class="small warn">⚠️ Il venditore non espone la spedizione (CardTrader Zero?): stimati 7,90 €, controlla alla cassa</div>' : ""}
-    ${o.lonely ? '<div class="small warn">⚠️ Prezzo isolato: molto sotto tutte le altre offerte della stessa carta</div>' : ""}
-    ${o.suspect ? '<div class="small bad">⛔ Guadagno troppo alto per essere credibile</div>' : ""}
-    ${o.note ? `<div class="small muted">«${esc(o.note)}»</div>` : ""}
-    <details class="small muted" style="margin-top:6px"><summary>dettagli</summary>
-      Prezzo carta ${eur(o.buy)} + ${eur(shipOf(o))} di spedizione${o.shipMethod ? ` (${esc(o.shipMethod)}${o.shipTracked ? ", tracciata" : ", non tracciata"})` : ""}<br>
-      Venditore ${esc(o.seller || "?")}${o.country ? ` · spedisce da ${FLAG(o.country)} ${esc(o.country)}` : ""}${o.qty > 1 ? ` · ${o.qty} copie` : ""}<br>
-      Altre offerte ${esc(LANG_NAME[o.lang] || o.lang || "")}: ${o.depth} in tutto, mediana ${eur(o.market)}<br>
-      Cardmarket: ${o.cmT ? `trend ${eur(o.cmT)}` : "trend non disponibile"}${o.cmA ? `, media 30 giorni ${eur(o.cmA)}` : ""} → si usa ${eur(o.cmTrend)}<br>
-      Vendendo con calma alla mediana: ${eur(o.sell)} → guadagni ${eur(o.profit)}
-    </details>
-    <a class="dlink" href="${esc(o.url)}" target="_blank" rel="noopener">Apri su CardTrader</a>
-    <button class="b" data-key="${esc(key)}" onclick="buyDeal(this.dataset.key)">${copies ? "Aggiungi copia" : "Segna come comprata"}</button>
-  </div>`;
-}
-
-function renderDeals(st) {
-  const d = dealsData;
-  if (!d || d.missing) {
-    return $("#view").innerHTML = `<div class="panel"><div id="scanbox">${scanBox(st)}</div>
-      <div class="msg">Premi «Aggiorna occasioni»: lo scanner controlla tutte le espansioni Pokémon su CardTrader e ci mette alcuni minuti.</div></div>`;
-  }
-  const p = dealPrefs;
-  const all = d.opportunities || [];
-  const pass = o => o.buy <= p.budget && o.profitFast >= p.minProfit
-    && (!p.lang || o.lang === p.lang) && (!p.country || o.country === p.country);
-  const sorter = { fast: (a, b) => b.profitFast - a.profitFast, roi: (a, b) => fastRoi(b) - fastRoi(a), cheap: (a, b) => a.buy - b.buy,
-    recent: (a, b) => (Date.parse(b.firstSeen || 0) - Date.parse(a.firstSeen || 0)) || b.profitFast - a.profitFast }[p.sort] || ((a, b) => b.profitFast - a.profitFast);
-  const solid = all.filter(o => !o.lonely && !o.suspect && pass(o)).sort(sorter);
-  const risky = all.filter(o => (o.lonely || o.suspect) && pass(o)).sort(sorter);
-  const shown = solid.slice(0, p.limit);
-  const sum = (list, f) => list.reduce((s, o) => s + o[f], 0);
-  const bundles = (d.bundles || []).filter(b => b.cards?.[0]?.name    // le scansioni vecchie non hanno i dettagli
-    && (!p.country || b.country === p.country)
-    && (!p.lang || b.cards.some(c => c.lang === p.lang)));
-
-  $("#view").innerHTML = `
-    <div class="panel"><div id="scanbox">${scanBox(st)}</div>
-      <div class="stats" style="margin-top:12px">
-        <div><b>${solid.length}</b><span>Occasioni con questi filtri</span></div>
-        <div><b style="color:var(--acc)">${solid.filter(isNew).length}</b><span>Nuove nell'ultima ora</span></div>
-        <div><b class="good">${eur(sum(solid, "profitFast"))}</b><span>Guadagno vendendo subito</span></div>
-        <div><b>${eur(sum(solid, "buy"))}</b><span>Per comprarle tutte</span></div>
-      </div>
-    </div>
-    <div class="panel"><div class="row">
-      <label>Spendo al massimo € a carta<input type="number" min="1" step="5" value="${p.budget}" onchange="dealPrefs.budget=+this.value||${DEAL_DEFAULTS.budget};saveDealPrefs();renderDeals(lastScan)"></label>
-      <label>Guadagno minimo €<input type="number" min="0" step="0.5" value="${p.minProfit}" onchange="dealPrefs.minProfit=+this.value||0;saveDealPrefs();renderDeals(lastScan)"></label>
-      <label>Lingua<select onchange="dealPrefs.lang=this.value;saveDealPrefs();renderDeals(lastScan)">
-        <option value="">Tutte</option>
-        ${Object.keys(LANG_NAME).map(l => `<option value="${l}" ${p.lang === l ? "selected" : ""}>${LANG_FLAG[l]} ${LANG_NAME[l]}</option>`).join("")}</select></label>
-      <label>Venditore in<select onchange="dealPrefs.country=this.value;saveDealPrefs();renderDeals(lastScan)">
-        <option value="">Tutti i paesi</option>
-        ${[...new Set(all.map(o => o.country).filter(Boolean))].sort().map(c => `<option value="${esc(c)}" ${p.country === c ? "selected" : ""}>${FLAG(c)} ${esc(c)}</option>`).join("")}</select></label>
-      <label>Ordina per<select onchange="dealPrefs.sort=this.value;saveDealPrefs();renderDeals(lastScan)">
-        <option value="fast" ${p.sort === "fast" ? "selected" : ""}>Guadagno vendendo subito</option>
-        <option value="roi" ${p.sort === "roi" ? "selected" : ""}>Rendimento %</option>
-        <option value="cheap" ${p.sort === "cheap" ? "selected" : ""}>Prezzo più basso</option>
-        <option value="recent" ${p.sort === "recent" ? "selected" : ""}>Più recenti</option></select></label>
-    </div>
-    <div class="note"><b>Paghi</b> = prezzo della carta più la spedizione vera del venditore. <b>Guadagni</b> = quanto ti resta vendendo subito su CardTrader (ti metti sotto la seconda offerta), già al netto delle commissioni (5,3% + IVA). <b>Prezzo solido</b> dice quanto è affidabile il valore di riferimento — non dice nulla su venditore, condizione e autenticità, che restano da guardare a mano. In «dettagli» ci sono tutti i conti e lo scenario vendendo con calma.
-      Il guadagno è già al netto di commissioni CardTrader (5,3% + IVA) e della spedizione vera del venditore (in Italia: 1,60 € non tracciata fino a 25 € di carrello, poi Raccomandata da 7,90 €). Solo venditori dell'Unione Europea.
-      «Con calma» presuppone di aspettare che le offerte più basse si esauriscano.
-      <b>La lingua conta</b>: una carta italiana vale circa la metà della stessa carta in inglese, quindi ogni lingua è confrontata solo con le offerte della stessa lingua. Se compri un'italiana, la rivendi sul mercato italiano.</div></div>
-    ${shown.length ? `<div class="grid">${shown.map(dealCard).join("")}</div>
-      ${solid.length > shown.length ? `<div style="text-align:center;margin-bottom:14px"><button class="b" onclick="dealPrefs.limit+=48;renderDeals(lastScan)">Mostra altre (${solid.length - shown.length})</button></div>` : ""}`
-      : '<div class="panel msg">Nessuna occasione con questi filtri. Prova ad alzare il budget o abbassare il guadagno minimo.</div>'}
-    ${bundles.length ? `<div class="panel"><b>Stesso venditore: una sola spedizione</b>
-      <div class="note" style="margin-top:2px">Comprando più carte dallo stesso venditore la spedizione si paga una volta. Attenzione: sopra i 25 € di carrello la spedizione economica non vale più, e il guadagno qui sotto ne tiene già conto.</div>
-      ${bundles.slice(0, 6).map(b => `<div style="margin-top:12px"><b>${esc(b.seller)}</b> · ${b.n} carte · spendi ${eur(b.cost)}${b.ship != null ? ` + ${eur(b.ship)} sped.` : ""} ·
-        <b class="good">+${eur(b.profit)}</b> vendendo subito
-        <div class="thumbs">${b.cards.map(c => `<a href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.name)} · ${eur(c.buy)}${c.lang ? " · " + (LANG_NAME[c.lang] || c.lang) : ""}">${c.image ? `<img src="${esc(c.image)}" alt="${esc(c.name)}" loading="lazy">` : esc(c.name)}</a>`).join("")}</div></div>`).join("")}
-    </div>` : ""}
-    ${risky.length ? `<div class="panel"><details><summary>⚠️ Da verificare con attenzione (${risky.length})</summary>
-      <div class="note">Annunci molto sotto tutte le altre offerte della stessa carta, o con guadagni troppo alti per essere credibili. A volte è un errore del venditore, più spesso una carta non come descritta. Guarda foto, descrizione e voti prima di comprare.</div>
-      <div class="grid" style="margin-top:10px">${risky.slice(0, 48).map(dealCard).join("")}</div></details></div>` : ""}
-    <div class="note" style="margin-bottom:20px"><b>Prima di comprare controlla sempre</b> le foto reali, la condizione dichiarata, i voti del venditore e l'autenticità. Nessun filtro automatico vede una carta falsa o rovinata.</div>`;
-}
-
-let lastScan = { running: false, waitMinutes: 0 };
-async function startScan() {
-  try {
-    const r = await (await fetch("/api/scan", { method: "POST" })).json();
-    if (!r.ok) return alert(r.error);
-    pollScan();
-  } catch (e) { alert("Errore: " + e.message); }
-}
-// Finche' la sezione Affari e' aperta controlla lo stato: ogni 3 secondi durante un giro,
-// ogni 20 altrimenti. Quando arriva un giro nuovo (anche automatico) ricarica le occasioni
-// tenendo la posizione di scorrimento.
-function pollScan() {
-  clearTimeout(scanPoll);
-  const tick = async () => {
-    if (tab !== "deals") return;
-    let st;
-    try { st = await api("/api/scan"); } catch { scanPoll = setTimeout(tick, 20000); return; }
-    lastScan = st;
-    if (!st.running && st.lastScanAt && st.lastScanAt !== Date.parse(dealsData?.generatedAt || 0)) {
-      try {
-        dealsData = await api("/api/opportunities");
-        const y = window.scrollY;
-        renderDeals(st);
-        window.scrollTo(0, y);
-      } catch {}
-    } else {
-      const box = $("#scanbox");
-      if (box) box.innerHTML = scanBox(st);
-    }
-    scanPoll = setTimeout(tick, st.running ? 3000 : 20000);
-  };
-  tick();
-}
-function go(t) { tab = t; render(); }
-
-function cardCell(c) {
-  return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}<small>${esc(c.set)} · #${esc(c.number)} · ${esc(c.rarity || "")}</small></div></div>`;
-}
-const CT_FEE = 5.3 * 1.22;   // commissione venditore CardTrader, come feePct in scanner.js
-function isCt(it) { return it.src === "ct"; }
-function invName(it) { return isCt(it) ? it.ct.name : it.card.name; }
-// carte da Affari: il prezzo vivo Cardmarket se c'e', altrimenti la stima fatta all'acquisto
-function invRef(it) {
-  if (!isCt(it)) return sellPrice(it.card);
-  const live = it.live?.ref, est = it.est?.sellFast;
-  // Il listino Cardmarket non distingue la lingua ed è più alto del prezzo a cui venderesti subito:
-  // non si supera mai la stima che lo scanner faceva sul mercato di quella carta.
-  if (live != null && est != null) return Math.min(live, est);
-  return live ?? est;
-}
-const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }); };
-function stimaDel(at) { return ddmm(at) ? "stima del " + ddmm(at) : ""; }
-function invCell(it) {
-  if (!isCt(it)) return cardCell(it.card);
-  const c = it.ct;
-  const bits = [c.expansion, c.version].filter(Boolean).join(" · ");
-  return `<div class="card">${c.image ? `<img src="${esc(c.image)}" alt="">` : ""}<div>${esc(c.name)}${c.reverse ? ' <span class="tag">reverse</span>' : ""}${c.lang ? " " + langTag(c) : ""}
-    <small>${esc(bits)}<br>${esc(c.seller || "?")}${c.country ? " · " + esc(c.country) : ""}
-    · <a href="${esc(c.url)}" target="_blank" rel="noopener">CardTrader</a></small></div></div>`;
-}
-
-// --- Cerca ---
-function viewSearch() {
-  $("#view").innerHTML = `
-    <div class="panel">
-      <form class="row" onsubmit="doSearch(event)">
-        <label>Nome carta<input id="q" placeholder="es. Charizard" value="${esc(lastSearch.q || "")}" required></label>
-        <label>Espansione (opz.)<input id="setq" placeholder="es. Obsidian Flames" value="${esc(lastSearch.set || "")}"></label>
-        <button class="b p" id="go">Cerca</button>
-      </form>
-      <div class="note">Prezzi dal listino ufficiale Cardmarket (in €, rigenerato ogni giorno), anagrafica da TCGdex. Il primo avvio scarica il listino (~15 MB) e la prima ricerca di una carta può richiedere qualche secondo; poi è in cache.</div>
-    </div>
-    <div class="panel scroll" id="results">${lastSearch.q ? searchHtml() : '<div class="msg">Cerca una carta per vedere prezzi e quanto pagarla al massimo.</div>'}</div>`;
-}
-async function doSearch(e) {
-  e.preventDefault();
-  const q = $("#q").value.trim(), set = $("#setq").value.trim();
-  $("#go").disabled = true;
-  $("#results").innerHTML = '<div class="msg">Ricerca in corso…</div>';
-  try {
-    const { cards, total, shown } = await api(`/api/search?q=${encodeURIComponent(q)}&set=${encodeURIComponent(set)}`);
-    cards.forEach(c => cardCache[c.id] = c);
-    lastSearch = { q, set, cards, extra: total > shown ? `<div class="note warn">Trovate ${total} carte, mostrate le prime ${shown}: aggiungi l'espansione per restringere la ricerca.</div>` : "" };
-    $("#results").innerHTML = searchHtml();
-  } catch (err) {
-    $("#results").innerHTML = `<div class="msg err">Errore: ${esc(err.message)}</div>`;
-  }
-  $("#go").disabled = false;
-}
-// si ricalcola a ogni render (non si tiene l'HTML): «Paga al massimo» dipende dalle commissioni del riquadro in alto
-const searchHtml = () => resultsHtml(lastSearch.cards) + lastSearch.extra;
-// cella «Paga al massimo»: senza prezzo di riferimento e «non rende» sono due cose diverse
-function maxBuyCell(c) {
-  const s = sellPrice(c), mb = maxBuy(s);
-  if (s == null) return '<span class="muted">senza prezzo</span>';
-  if (!(mb > 0)) return '<span class="muted">non rende</span>';
-  const v = maxBuyVinted(s);
-  return `<b>${eur(mb)}</b>${v > 0 ? `<small class="muted"><br>Vinted ${eur(v)}</small>` : '<small class="muted"><br>su Vinted non rende</small>'}`;
-}
-function resultsHtml(cards) {
-  if (!cards.length) return '<div class="msg">Nessun risultato.</div>';
-  const rows = cards.map(c => {
-    return `<tr>
-      <td>${cardCell(c)}</td>
-      <td>${eur(c.cm.trend)}</td><td>${eur(c.cm.avg30)}</td>
-      <td>${maxBuyCell(c)}</td>
-      <td>${fresh(c)}</td>
-      <td class="l">
-        <button class="b" onclick="addWatch('${esc(c.id)}')">★</button>
-        <button class="b" onclick="addInv('${esc(c.id)}')">+ Compro</button>
-        ${c.cardmarketUrl ? `<a href="${esc(c.cardmarketUrl)}" target="_blank" rel="noopener">CM</a>` : ""}
-      </td></tr>`;
-  }).join("");
-  return `<table><thead><tr><th>Carta</th><th>Trend</th><th>Media 30g</th><th>Paga al massimo</th><th>Dati</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>Paga al massimo</b> = il prezzo più alto a cui comprare per guadagnare almeno il 20% netto rivendendo al più basso tra trend e media a 30 giorni, con le commissioni di vendita del riquadro in alto. Il secondo numero è il tetto <b>comprando su Vinted</b>, dove paghi anche la protezione acquisti (0,70 € + 5%) e la spedizione (3 €). «Non rende» = anche regalata, commissioni e spedizione si mangiano tutto.
-      Il valore è quello di una carta Near Mint: le offerte reali si vedono in Affari (CardTrader) o guardando su Cardmarket.</div>`;
-}
-
-// --- Watchlist ---
-function addWatch(id) {
-  if (!data.watchlist.find(w => w.id === id)) {
-    const c = cardCache[id];
-    data.watchlist.push({ id, target: Math.max(0, Math.round((maxBuy(sellPrice(c)) ?? 0) * 100) / 100), card: c });
-    save();
-  }
-  go("watch");
-}
-// Offerte in Affari per una carta seguita: si legano per id Cardmarket, l'unica chiave comune
-// tra il catalogo TCGdex della ricerca e i blueprint di CardTrader.
-function dealsFor(c) {
-  const id = c?.idProduct;
-  if (id == null) return [];
-  return (dealsData?.opportunities || []).filter(o => o.cmId === id && !o.suspect && !o.lonely).sort((a, b) => a.buy - b.buy);
-}
-function watchCell(w) {
-  const found = dealsFor(w.card);
-  if (!found.length) return '<span class="small muted">nessuna offerta</span>';
-  const best = found[0];
-  const sotto = w.target > 0 && best.buy <= w.target;
-  return `<a href="${esc(best.url)}" target="_blank" rel="noopener"><b>${eur(best.buy)}</b></a>
-    <div class="small muted">${LANG_FLAG[best.lang] || ""} ${esc(LANG_NAME[best.lang] || best.lang || "")}${best.reverse ? " · reverse" : ""}${best.depth > 1 ? ` · ${best.depth} offerte in questa lingua` : ""}
-    ${best.profitFast > 0 ? ` · +${eur(best.profitFast)} vendendo subito` : ""}</div>
-    ${sotto ? '<span class="tag" style="background:var(--acc)">SOTTO IL TUO TETTO</span>' : ""}`;
-}
-async function viewWatch() {
-  // le occasioni servono anche qui: si caricano una volta sola
-  let errore = "";
-  // le occasioni si ricaricano quando lo scanner ha finito un giro nuovo, non una volta sola
-  if (data.watchlist.length && (!dealsData || Date.parse(dealsData.generatedAt || 0) < (lastScan.lastScanAt || 0))) {
-    try { dealsData = await api("/api/opportunities"); } catch (e) { errore = e.message; }
-  }
-  if (tab !== "watch") return;                     // nel frattempo puoi aver cambiato scheda
-  const attive = data.watchlist.filter(w => dealsFor(w.card).length).length;
-  const rows = data.watchlist.map((w, i) => {
-    const c = w.card;
-    return `<tr><td>${cardCell(c)}</td><td>${eur(c.cm.trend)}</td><td>${fresh(c)}</td><td>${maxBuyCell(c)}</td>
-      <td class="l">${watchCell(w)}</td>
-      <td><input type="number" step="0.1" min="0" value="${w.target}" onchange="data.watchlist[${i}].target=parseFloat(this.value)||0;save();viewWatch()"></td>
-      <td><button class="b" onclick="data.watchlist.splice(${i},1);save();viewWatch()">✕</button></td></tr>`;
-  }).join("");
-  $("#view").innerHTML = `<div class="panel scroll">
-    <div class="row" style="margin-bottom:10px;align-items:center"><button class="b p" id="ref" onclick="refreshWatch()">Aggiorna prezzi</button>
-    <span class="muted" id="refmsg"></span>
-    ${errore ? `<span class="small bad">Occasioni non caricate: ${esc(errore)}</span>` : ""}${!errore && data.watchlist.length ? `<span class="small ${attive ? "good" : "muted"}">${attive ? `${attive} di ${data.watchlist.length} in vendita ora` : "nessuna delle carte che segui è in vendita adesso"}</span>` : ""}</div>
-    ${data.watchlist.length ? `<table><thead><tr><th>Carta</th><th>Trend</th><th>Dati</th><th>Paga al massimo oggi</th><th class="l">In vendita ora su CardTrader</th><th>Il tuo tetto €</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>In vendita ora</b> = offerte trovate dallo scanner per questa carta, in qualsiasi lingua: il prezzo è quello dell'offerta più bassa. L'etichetta compare quando scende sotto il tetto che hai messo tu.
-      <b>Paga al massimo oggi</b> si ricalcola con i prezzi aggiornati e le commissioni del riquadro in alto (almeno +20% netto rivendendo al più basso tra trend e media a 30 giorni). <b>Il tuo tetto</b> è quello proposto quando hai aggiunto la carta: non cambia da solo, modificalo a piacere. </div>`
-      : '<div class="msg">Nessuna carta. Usa ★ nei risultati di ricerca.</div>'}</div>`;
-}
-async function refreshWatch() {
-  $("#ref").disabled = true;
-  for (const [i, w] of data.watchlist.entries()) {
-    $("#refmsg").textContent = `Aggiorno ${i + 1}/${data.watchlist.length}…`;
-    try { w.card = (await api(`/api/card?id=${encodeURIComponent(w.id)}`)).card; } catch (e) { $("#refmsg").textContent = e.message; }
-  }
-  save(); viewWatch();
-}
-
-// --- Inventario ---
-function addInv(id) {
-  const c = cardCache[id];
-  const price = num(prompt(`Prezzo pagato per ${c.name} (€, spedizione esclusa):`, ""));   // niente low: inviterebbe a registrare un prezzo finto
-  if (isNaN(price)) return;
-  data.inventory.push({ uid: Date.now(), card: c, buy: price, ship: settings.inn, date: new Date().toISOString().slice(0, 10), sold: null });
-  save(); go("inv");
-}
-// Si registra quello che hai incassato DAVVERO, non la stima: e' l'unico modo per sapere
-// fra qualche mese se il mestiere rende. Il netto e' precompilato con le commissioni della
-// piattaforma, ma va corretto con la cifra vera dell'accredito.
-function sell(i) {
-  const it = data.inventory[i];
-  const plat = platOf(it);
-  const price = num(prompt(`A quanto l'hai venduta? (€, prezzo pagato dal compratore)`, it.listing?.price ?? invRef(it) ?? ""));
-  if (isNaN(price)) return;
-  const f = feesOf(plat);
-  const stima = price * (1 - f.pct / 100) - f.fix;      // l'imballaggio si sottrae dopo, non lo trattiene la piattaforma
-  const net = num(prompt(`Quanto ti è stato accreditato su ${plat}, al netto delle commissioni? (€)\nStima con ${f.pct.toFixed(1)}%${f.fix ? " + " + eur(f.fix) : ""}: ${eur(stima)}`, stima.toFixed(2)));
-  if (isNaN(net)) return;
-  // "out" e' quello che la spedizione costa a te (imballaggio): non lo trattiene la piattaforma,
-  // quindi va sottratto dall'accredito, altrimenti il guadagno risulta piu' alto del vero
-  it.sold = { price, net, out: f.out, platform: plat, at: new Date().toISOString(), date: today() };
-  it.listing = null;
-  save(); viewInv();
-}
-// guadagno reale di una carta venduta (le vendite vecchie tenevano solo le commissioni stimate)
-function soldProfit(it) {
-  const cost = it.buy + it.ship;
-  const s = it.sold;
-  const net = s.net != null ? s.net - (s.out ?? 0) : s.price * (1 - (s.pct ?? 0) / 100) - (s.fix ?? 0) - (s.out ?? 0);
-  return { net, profit: net - cost, days: s.date && it.date ? Math.round((Date.parse(s.date) - Date.parse(it.date)) / 86400000) : null };
-}
-// Prezzi vivi: all'apertura dell'Inventario, se sono piu' vecchi di un'ora, si chiedono al server
-// in un colpo solo. Il server usa il listino Cardmarket (e cache-blueprints.json per le carte da
-// Affari): nessuna richiesta a CardTrader. La stima `est` non si tocca mai.
-const LIVE_TTL = 3600 * 1000;
-let invLoading = false, invTry = 0, invError = "";
-const invStale = () => data.inventory.some(it => !it.sold && !(Date.now() - Date.parse(it.live?.at || 0) < LIVE_TTL));
-async function refreshInv() {
-  const list = data.inventory.filter(it => !it.sold);
-  if (invLoading || !list.length) return;
-  invLoading = true; invError = ""; viewInv();
-  try {
-    const items = list.map(it => isCt(it) ? { bp: it.ct.blueprintId, rev: !!it.ct.reverse } : { tcg: it.card.id });
-    const r = await fetch("/api/live", { method: "POST", body: JSON.stringify({ items }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || r.status);
-    const at = new Date().toISOString();
-    list.forEach((it, k) => {
-      const x = j.items[k];
-      if (!x) return;
-      if (x.card) { it.card = x.card; it.live = { at, priceDate: j.priceDate }; }
-      else it.live = { at, priceDate: j.priceDate, idProduct: x.idProduct, ref: x.ref, trend: x.trend, avg30: x.avg30 };
-    });
-    save();
-  } catch (e) { invError = e.message; }
-  invLoading = false;
-  if (tab === "inv") viewInv();
-}
-// --- banco di vendita ---------------------------------------------------------
-// Fotografia del mercato delle tue carte, scattata dallo scanner nel giro completo (ogni ora).
-let marketData = null, marketLoading = false, marketTry = 0;
-const marketKey = it => it.ct?.blueprintId ? `${it.ct.blueprintId}|${it.ct.lang || "it"}|${!!it.ct.reverse}` : null;
-function marketOf(it) {
-  const k = marketKey(it);
-  return k && marketData?.cards ? marketData.cards[k] || null : null;
-}
-// Due prezzi, entrambi limitati dal valore prudente (il riferimento Cardmarket):
-//  - VELOCE: un centesimo sotto l'offerta piu' bassa degli altri, per vendere in giornata;
-//  - PAZIENTE: la mediana delle altre offerte, aspettando che le piu' basse si esauriscano.
-function sellPrices(it) {
-  const m = marketOf(it);
-  if (!m || !m.n) return null;
-  const cap = invRef(it) ?? Infinity;      // non si consiglia mai un prezzo sopra il valore prudente
-  const veloce = m.low != null ? Math.min(Math.max(m.low - 0.01, 0.01), cap) : null;
-  const paziente = m.median != null ? Math.min(m.median, cap) : null;
-  return { veloce, paziente, n: m.n, mie: m.mie, low: m.low };
-}
-// Prezzo sotto cui ci rimetti: recupera quello che hai speso, le commissioni della piattaforma
-// e quello che ti costa spedire. La spedizione d'acquisto e' gia' spesa, ma va recuperata
-// perche' il conto dell'operazione torni.
-function feesOf(platform) {
-  if (platform === "CardTrader") return { pct: CT_FEE, fix: 0, out: settings.out };
-  const p = PLATFORMS[platform];
-  return p ? { ...p, out: settings.out } : { pct: settings.pct, fix: settings.fix, out: settings.out };
-}
-// piattaforma di riferimento: quella dell'annuncio, o quella naturale della carta
-const platOf = it => it.listing?.platform || it.sold?.platform || (isCt(it) ? "CardTrader" : settings.plat);
-function floorPrice(it, platform = platOf(it)) {
-  const f = feesOf(platform);
-  const cost = it.buy + it.ship + f.fix + f.out;
-  return cost / (1 - f.pct / 100);
-}
-const days = from => from ? Math.floor((Date.now() - Date.parse(from)) / 86400000) : null;
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-
-function listCard(i) {
-  const it = data.inventory[i];
-  const ref = invRef(it);
-  const plat = prompt(`Dove la metti in vendita?\n(${Object.keys(PLATFORMS).filter(p => p !== "Personalizzata").join(", ")}, CardTrader, o scrivi altro)`, it.listing?.platform || (isCt(it) ? "CardTrader" : settings.plat));
-  if (!plat) return;
-  const floor = floorPrice(it, plat.trim());        // commissioni della piattaforma scelta adesso
-  const sp = sellPrices(it);
-  const sug = Math.max(floor, sp?.veloce ?? ref ?? 0);        // mai sotto il prezzo minimo
-  const price = num(prompt(`A che prezzo? (€)\nSotto ${eur(floor)} ci rimetti.${sp ? ` Per vendere subito: ${eur(sp.veloce)} · con calma: ${eur(sp.paziente)}` : ` Valore stimato oggi: ${eur(ref)}`}`, sug.toFixed(2)));
-  if (isNaN(price)) return;
-  it.listing = { platform: plat.trim(), price, at: new Date().toISOString(), drops: [] };
-  save(); viewInv();
-}
-function dropPrice(i) {
-  const it = data.inventory[i];
-  if (!it.listing) return;
-  const price = num(prompt(`Nuovo prezzo su ${it.listing.platform} (€)\nOra: ${eur(it.listing.price)} · sotto ${eur(floorPrice(it))} ci rimetti`, it.listing.price));
-  if (isNaN(price)) return;
-  const floor = floorPrice(it);
-  if (price < floor && !confirm(`A ${eur(price)} ci rimetti: il minimo per rientrare è ${eur(floor)}. Ribasso lo stesso?`)) return;
-  it.listing.drops.push({ at: new Date().toISOString(), price });
-  it.listing.price = price;
-  save(); viewInv();
-}
-function unlist(i) {
-  const it = data.inventory[i];
-  if (it.listing && confirm("Tolgo l'annuncio? La carta resta in magazzino.")) { it.listing = null; save(); viewInv(); }
-}
-
-// Cancellare una carta venduta toglie una riga dalla contabilita': va detto.
-function removeInv(i) {
-  const it = data.inventory[i];
-  const msg = it.sold ? `${invName(it)} è già venduta: cancellandola sparisce dal guadagno realizzato e dalle statistiche. Procedo?`
-    : it.listing ? `${invName(it)} è in vendita su ${it.listing.platform}: cancello la carta e il suo annuncio?`
-    : "Eliminare questa carta dall'inventario?";
-  if (confirm(msg)) { data.inventory.splice(i, 1); save(); viewInv(); }
-}
-
-function viewInv() {
-  if (!invLoading && invStale() && Date.now() - invTry > 60000) { invTry = Date.now(); refreshInv(); return; }
-  // La fotografia del mercato non dipende dai prezzi vivi: si carica da sola. Se il server non
-  // risponde si riprova al massimo una volta al minuto, non a ogni disegno della pagina.
-  if (!marketData && !marketLoading && Date.now() - marketTry > 60000 && data.inventory.some(it => !it.sold)) {
-    marketTry = Date.now(); marketLoading = true;
-    api("/api/market").then(m => { marketData = m; }).catch(() => {}).then(() => { marketLoading = false; if (tab === "inv") viewInv(); });
-  }
-  let invested = 0, value = 0, realized = 0;
-  const rows = data.inventory.map((it, i) => {
-    const cost = it.buy + it.ship;
-    const ref = invRef(it);
-    let status;
-    if (it.sold) {
-      const r = soldProfit(it);
-      realized += r.profit;
-      const stimato = it.est?.profitFast;
-      status = `Venduta a ${eur(it.sold.price)}${it.sold.platform ? " su " + esc(it.sold.platform) : ""} · incassati ${eur(r.net)}
-        → <b class="${cls(r.profit)}">${eur(r.profit)}</b>${r.days != null ? ` <span class="small muted">dopo ${r.days} giorni</span>` : ""}
-        ${stimato != null ? `<div class="small muted">All'acquisto stimavi +${eur(stimato)}${r.profit != null ? ` · differenza <span class="${cls(r.profit - stimato)}">${eur(r.profit - stimato)}</span>` : ""}</div>` : ""}`;
-    } else {
-      invested += cost; value += ref ?? 0;
-      // le carte da Affari si valutano come le valutava lo scanner: vendita su CardTrader (5,3% + IVA)
-      const n = net(it.buy, ref, isCt(it) ? { pct: CT_FEE, fix: 0, out: 0, inn: it.ship } : { ...settings, inn: it.ship });
-      // si mostra da dove viene il numero davvero usato: il prezzo di oggi o la stima d'acquisto
-      const src = !isCt(it) ? ""
-        : it.live?.ref != null && it.live.ref <= (it.est?.sellFast ?? Infinity) ? `Cardmarket, listino del ${ddmm(it.live.priceDate)}`
-        : it.live?.ref != null ? `${stimaDel(it.est?.at)}, più prudente del listino (${eur(it.live.ref)})`
-        : it.live ? "nessun prezzo Cardmarket: " + stimaDel(it.est?.at) : stimaDel(it.est?.at);
-      const snap = src ? ` <span class="muted">(${esc(src)})</span>` : "";
-      // la stima dell'acquisto resta visibile accanto al prezzo di oggi: e' il confronto che valida i segnali
-      const was = isCt(it) && it.live?.ref != null && it.est ? `<div class="small muted">All'acquisto: vendita subito ~${eur(it.est.sellFast)} (${esc(stimaDel(it.est.at))})</div>` : "";
-      const floor = floorPrice(it), inStock = days(it.date), listed = it.listing ? days(it.listing.at) : null;
-      const vendita = it.listing
-        ? `<div style="margin-top:4px">In vendita su <b>${esc(it.listing.platform)}</b> a <b>${eur(it.listing.price)}</b>
-             <span class="small muted">da ${listed} ${listed === 1 ? "giorno" : "giorni"}${it.listing.drops.length ? ` · ${it.listing.drops.length} ribass${it.listing.drops.length === 1 ? "o" : "i"}` : ""}</span>
-             <button class="b" onclick="dropPrice(${i})">Ribassa</button>
-             <button class="b" onclick="sell(${i})">Venduta</button>
-             <button class="b" onclick="unlist(${i})">Ritira</button></div>`
-        : `<div style="margin-top:4px"><button class="b p" onclick="listCard(${i})">Metti in vendita</button>
-             <button class="b" onclick="sell(${i})">Venduta</button></div>`;
-      const fermo = inStock != null && inStock >= 30 && !it.listing
-        ? `<div class="small warn">Ferma in magazzino da ${inStock} giorni e non è in vendita</div>` : "";
-      const sp = sellPrices(it);
-      // un prezzo consigliato sotto il minimo e' una perdita: va detto, non nascosto
-      const perdita = sp && sp.veloce != null && sp.veloce < floor;
-      const consigli = sp ? `<div class="small">Per venderla: <b class="${perdita ? "bad" : ""}">${eur(sp.veloce)}</b> subito (sotto l'offerta più bassa degli altri, ${eur(sp.low)})${perdita ? " — <b class=\"bad\">ci rimetti</b>" : ""}${sp.paziente ? ` · <b class="${sp.paziente < floor ? "bad" : ""}">${eur(sp.paziente)}</b> con calma` : ""}
-        <span class="muted">${sp.n} ${sp.n === 1 ? "offerta" : "offerte"} come la tua${sp.mie ? ` (${sp.mie} tua)` : ""}${marketData?.at ? ", mercato di " + ago(Date.now() - Date.parse(marketData.at)) : ""}</span></div>` : "";
-      status = `Vale ~${eur(ref)}${snap} → <span class="${cls(n?.profit)}">${eur(n?.profit)}</span> netto
-        ${consigli}<div class="small muted">Sotto ${eur(floor)} ci rimetti${inStock != null ? ` · in magazzino da ${inStock} ${inStock === 1 ? "giorno" : "giorni"}` : ""}</div>${was}${fermo}${vendita}`;
-    }
-    return `<tr><td>${invCell(it)}</td><td>${eur(it.buy)}</td><td>${eur(it.ship)}</td><td>${esc(it.date)}</td><td class="l">${status}</td>
-      <td><button class="b" onclick="removeInv(${i})">✕</button></td></tr>`;
-  }).join("");
-  const hasCt = data.inventory.some(isCt);
-  const aperte = data.inventory.filter(it => !it.sold);
-  const vendute = data.inventory.filter(it => it.sold);
-  const inVendita = aperte.filter(it => it.listing).length;
-  const ferme = aperte.filter(it => !it.listing && (days(it.date) ?? 0) >= 30).length;
-  const gg = vendute.map(it => soldProfit(it).days).filter(d => d != null);
-  const medio = gg.length ? Math.round(gg.reduce((a, b) => a + b, 0) / gg.length) : null;
-  // il confronto che conta: quanto stimava lo scanner quando hai comprato, quanto hai incassato
-  const conStima = vendute.filter(it => it.est?.profitFast != null);
-  const stimato = conStima.reduce((a, it) => a + it.est.profitFast, 0);
-  const reale = conStima.reduce((a, it) => a + soldProfit(it).profit, 0);
-  $("#view").innerHTML = `<div class="panel"><div class="stats">
-      <div><b>${eur(invested)}</b><span>Capitale in carte${aperte.length ? ` (${aperte.length})` : ""}</span></div>
-      <div><b>${eur(value)}</b><span>${hasCt ? "Valore (lordo / stima)" : "Valore al trend (lordo)"}</span></div>
-      <div><b class="${cls(realized)}">${eur(realized)}</b><span>Guadagno realizzato${vendute.length ? ` (${vendute.length} vendute)` : ""}</span></div>
-      ${aperte.length ? `<div><b>${inVendita}/${aperte.length}</b><span>In vendita${ferme ? ` · ${ferme} ferme da 30+ gg` : ""}</span></div>` : ""}
-      ${medio != null ? `<div><b>${medio} gg</b><span>Tempo medio per vendere</span></div>` : ""}
-      ${conStima.length ? `<div><b class="${cls(reale - stimato)}">${eur(reale - stimato)}</b><span>Realizzato meno stimato (${conStima.length} carte)</span></div>` : ""}
-    </div></div>
-    <div class="panel scroll">${data.inventory.length ? `<div class="row" style="margin-bottom:10px;align-items:center">
-      <button class="b p" ${invLoading ? "disabled" : ""} onclick="invTry=Date.now();refreshInv()">${invLoading ? "Aggiorno i prezzi…" : "Aggiorna prezzi"}</button>
-      <span class="small ${invError ? "bad" : "muted"}">${invError ? "Prezzi non aggiornati: " + esc(invError) : "Si aggiornano da soli aprendo l'Inventario, se hanno più di un'ora."}</span></div>
-    <table><thead><tr><th>Carta</th><th>Pagata</th><th>Spedizione</th><th>Data</th><th class="l">Stato</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="note"><b>Sotto il prezzo minimo ci rimetti</b>: recupera prezzo pagato, spedizione d'acquisto, commissioni e imballaggio della piattaforma scelta in alto. Quando vendi registra <b>l'incasso vero</b>, non la stima: «realizzato meno stimato» è la misura che dice se le occasioni dello scanner sono reali.
-      Carte da Cerca: il più basso tra trend e media a 30 giorni di Cardmarket.${hasCt ? " Carte da Affari: il più prudente tra trend e media a 30 giorni di Cardmarket, con la commissione CardTrader (5,3% + IVA); sotto resta la stima di quando le hai segnate, per confrontarla col prezzo a cui venderai davvero." : ""}</div>`
-      : '<div class="msg">Nessuna carta. Da Affari: «Segna come comprata» dopo il pagamento. Da Cerca: «+ Compro».</div>'}</div>`;
-}
-
-(async () => {
-  initSettings();
-  const fromBookmarklet = readBookmarkletHash();
-  try { data = await api("/api/data"); } catch {}
-  data.watchlist.forEach(w => cardCache[w.id] = w.card);
-  render();
-  if (fromBookmarklet) doAppraise();      // arrivando dal pulsante, valuta subito
-})();
+render();
 </script>
 </body>
 </html>

@@ -1,6 +1,16 @@
 # Pokemon Trader
 
-App web locale (in italiano) per la compravendita di carte Pokémon: cerca una carta, mostra il prezzo Cardmarket e calcola il margine netto comprando e rivendendo. Utente: Fabio, budget 200-1000 €, carte singole raw.
+**Strumento da banco** (in italiano) per comprare carte Pokémon dal vivo: mercatini, negozi dell'usato, fiere. Con la carta in mano cerchi il nome, vedi **a quanto è in vendita adesso su CardTrader** e **quanto la prezza Cardmarket**, e segni cosa hai preso. Utente: Fabio.
+
+## Cos'è oggi l'app (riorganizzata il 27/09/2026 — leggere prima di tutto il resto)
+Fabio: «l'app sarà solo e unicamente un'app da usare in situazioni tipo mercatino, negozi dell'usato ecc. Ci sono tante schede che non mi servono». `index.html` è stato **riscritto da 1019 a ~470 righe**: due sole schermate, **nessun calcolo di margine**.
+- **Carta**: ricerca istantanea locale (`/api/find`), pulsante 📷 col lettore Tesseract, risultati con immagine ed espansione. Toccata la carta: **due pulsanti per dire cosa hai in mano** (italiano/inglese, reverse sì/no) e sopra il **prezzo grande** = la Near Mint più economica in vendita ora in quella lingua; sotto le altre combinazioni, tutte le offerte per lingua e condizione, i prezzi Cardmarket (trend, media 30 giorni, colonne holo) e **«L'ho presa: segna il prezzo»**.
+- **Giornata**: calcolatore scatolone (numero carte + prezzo → €/carta con giudizio bulk ≤ 0,08 / speranza ≤ 0,30 / caro), carte prese oggi con **totale speso** e annulla, carte guardate (toccabili per riaprirle), «copia il riepilogo».
+- **Acquisti e carte viste stanno nel telefono** (`localStorage`, 30 giorni), non in `data.json`: l'app da campo non scrive sul PC. Se il browser non salva, la pagina lo dice.
+- Il lettore foto, dopo l'OCR, passa da `/api/appraise` e poi **mette nome e numero nella ricerca** (`usaLettura`); se il server non è sicuro della carta (`uncertain`) si resta sulla lista, senza fingere precisione.
+- **Tolti dalla UI**: Perito (testo annuncio e bookmarklet), Affari, Cerca, Watchlist, Inventario col banco di vendita, riquadro commissioni e ogni ROI. Il **codice server resta** (`/api/appraise`, `/api/opportunities`, scanner.js, diario) e con esso i dati già raccolti.
+- **Giri automatici SPENTI di default**: si accendono con `node server.js --scansioni`. Senza Affari servirebbero solo al diario, e ruberebbero richieste CardTrader allo scanner (stesso token, stesso Cloudflare). Conseguenza da sapere: **il diario si ferma**, e le occasioni nate e sparite nel frattempo non si recuperano.
+- Le sezioni più sotto descrivono anche parti **non più nella UI**: restano perché il codice esiste ancora e perché contengono misure che non vanno rifatte (trappole dei dati, lingue, spedizioni, economia del mestiere).
 
 ## Avvio
 - `node server.js` → http://localhost:8000. Nessuna dipendenza da installare.
