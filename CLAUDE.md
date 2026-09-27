@@ -8,6 +8,15 @@ App web locale (in italiano) per la compravendita di carte Pokémon: cerca una c
 - **Non usare Python**: l'installazione sul PC è danneggiata (manca `html/entities.py`, quindi `http.server` non si importa). Per questo il server è in Node.
 - Per riavviare: fermare il processo sulla porta 8000 (PowerShell: `Get-NetTCPConnection -LocalPort 8000 -State Listen | % { Stop-Process -Id $_.OwningProcess -Force }`), poi rilanciare.
 
+## Dal telefono, anche fuori casa: Tailscale (configurato il 27/09/2026)
+Serve per lo scanner al mercatino. Scelto con Sol e Grok al posto di un tunnel pubblico: l'app **non finisce su internet**, la raggiungono solo i dispositivi dell'account.
+- Installato con `winget install --id Tailscale.Tailscale` (1.102.4). Dispositivi collegati: **fabio-meloni** (PC) e **realme-12-5g** (telefono).
+- L'app è esposta con **`tailscale serve --bg --https=443 http://127.0.0.1:8000`**: indirizzo **`https://fabio-meloni.tail1f2105.ts.net`**, certificato vero, quindi **la fotocamera del browser è utilizzabile** (in http non-localhost non lo era). Il server resta in ascolto su 127.0.0.1: non serve più `--telefono`.
+- **Mai `tailscale funnel`**: quello pubblicherebbe l'app su internet e l'app **non ha autenticazione** (chi la raggiunge può sovrascrivere `data.json` e lanciare scansioni col token che può spendere).
+- Per spegnere l'esposizione: `tailscale serve --https=443 off`. Per vedere lo stato: `tailscale serve status`.
+- **Il PC deve essere acceso con `node server.js` avviato**, altrimenti dal telefono si prende 502 (successo già incontrato una volta: il 502 era il server dell'app spento, non Tailscale).
+- Nei giorni di mercatino conviene avviare con `--no-auto`: i giri automatici e le richieste dello scanner sono due usi di CardTrader che si sommano.
+
 ## File
 - `server.js`: server HTTP + accesso alle fonti dati.
 - `index.html`: tutta l'interfaccia (HTML, CSS e JS in un file). Tab: Perito, Affari, Cerca, Watchlist, Inventario. (Il Calcolatore è stato tolto il 23/09/2026: rifaceva a mano quello che Cerca, Perito e Inventario calcolano da soli sui dati veri della carta.)
