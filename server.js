@@ -232,6 +232,106 @@ async function livePrices(items) {
   return { priceDate: g.createdAt, items: out };
 }
 
+// ---------- Scanner: cerca una carta e mostra i prezzi delle due piattaforme ----------
+// Niente calcoli: si mostra quello che dicono Cardmarket (listino del giorno) e CardTrader
+// (offerte vere, adesso). La ricerca e' locale sui blueprint gia' in cache: istantanea.
+const CT_API = "https://api.cardtrader.com/api/v2";
+const EXP_FILE = path.join(__dirname, "cache-expansions.json");
+const ctToken = () => { try { return fs.readFileSync(path.join(__dirname, "cardtrader-token.txt"), "utf8").trim(); } catch { return ""; } };
+
+let cards = null, cardsMtime = 0;
+function cardIndex() {
+  const mtime = fs.statSync(BP_FILE, { throwIfNoEntry: false })?.mtimeMs || 0;
+  if (cards && mtime === cardsMtime) return cards;
+  const exp = loadJson(EXP_FILE, {});
+  const out = [];
+  for (const [expId, list] of Object.entries(loadJson(BP_FILE, {}))) {
+    for (const b of list || []) {
+      out.push({ id: b.id, name: b.name, version: b.version || "", img: b.img || null,
+        cm: b.card_market_ids?.[0] ?? null, exp: exp[expId] || "", cerca: norm(b.name + " " + (b.version || "") + " " + (exp[expId] || "")) });
+    }
+  }
+  cards = out; cardsMtime = mtime;
+  return cards;
+}
+
+// nomi delle espansioni: una sola richiesta, poi in cache (servono per distinguere le carte)
+let expTry = 0;
+async function ensureExpansions() {
+  if (fs.existsSync(EXP_FILE) || Date.now() - expTry < 600000) return;
+  expTry = Date.now();
+  const t = ctToken();
+  if (!t) return;
+  const r = await fetch(`${CT_API}/expansions`, { headers: { Authorization: `Bearer ${t}` } });
+  if (!r.ok) return;
+  const names = {};
+  for (const e of await r.json()) if (e.game_id === 5) names[e.id] = e.name;
+  fs.writeFileSync(EXP_FILE, JSON.stringify(names));
+  cards = null;
+}
+
+// Ricerca per nome e numero: "chariz 199" trova Charizard ex 199/165.
+async function findCards(q) {
+  const g = await ensureGuide();
+  await ensureExpansions().catch(() => {});
+  const parole = norm(q).split(" ").filter(Boolean);
+  if (!parole.length) return { cards: [] };
+  const out = [];
+  for (const c of cardIndex()) {
+    if (!parole.every(p => c.cerca.includes(p))) continue;
+    const p = c.cm != null ? g.prices.get(c.cm) : null;
+    out.push({ ...c, cerca: undefined,
+      prezzi: p ? { trend: p.trend || null, avg30: p.avg30 || null, trendHolo: p.trendHolo || null, avg30Holo: p.avg30Holo || null } : null });
+  }
+  // prima le carte che valgono di piu': al mercatino sono quelle che contano
+  out.sort((a, b) => (b.prezzi?.trend ?? b.prezzi?.avg30 ?? -1) - (a.prezzi?.trend ?? a.prezzi?.avg30 ?? -1));
+  return { cards: out.slice(0, 24), totale: out.length, listino: g.createdAt };
+}
+
+// Offerte vere su CardTrader per una carta, adesso. Una richiesta, in coda, con memoria di
+// 2 minuti: al mercatino si tocca una carta alla volta e Cloudflare non si arrabbia.
+const offersCache = new Map();
+const offersInFlight = new Map();                       // due tocchi sulla stessa carta = una richiesta
+let ctQueue = Promise.resolve();                        // catena che NON si rompe: ogni anello cattura
+async function ctOffers(bp) {
+  const hit = offersCache.get(bp);
+  if (hit && Date.now() - hit.at < 120000) return hit.data;
+  if (offersInFlight.has(bp)) return offersInFlight.get(bp);
+  const lavoro = ctQueue.catch(() => {}).then(async () => {
+    const t = ctToken();
+    if (!t) throw new Error("manca il token CardTrader");
+    let r;
+    for (let i = 0; i < 3; i++) {                       // sul 403 si aspetta, come fa lo scanner
+      if (i) await sleep(4000 * i);
+      r = await fetch(`${CT_API}/marketplace/products?blueprint_id=${bp}`,
+        { headers: { Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(20000) });
+      if (r.status !== 403 && r.status !== 429) break;
+    }
+    if (r.status === 403 || r.status === 429) throw new Error("CardTrader ci sta rallentando: riprova tra un minuto");
+    if (!r.ok) throw new Error("CardTrader non risponde (HTTP " + r.status + ")");
+    const lista = Object.values(await r.json())[0] || [];
+    const gruppi = {};
+    for (const p of lista) {
+      const h = p.properties_hash || {};
+      if (p.graded || p.on_vacation || p.price_currency !== "EUR" || h.altered || h.signed) continue;
+      const k = `${h.pokemon_language || "?"}|${h.pokemon_reverse ? "reverse" : "normale"}|${h.condition || "?"}`;
+      (gruppi[k] ??= []).push(p.price_cents / 100);
+    }
+    const offerte = Object.entries(gruppi).map(([k, v]) => {
+      const [lang, tipo, cond] = k.split("|");
+      return { lang, reverse: tipo === "reverse", cond, n: v.length, da: Math.min(...v) };
+    }).sort((a, b) => a.da - b.da);   // la pagina poi raggruppa per lingua e condizione
+    const data = { at: new Date().toISOString(), offerte, url: `https://www.cardtrader.com/cards/${bp}` };
+    offersCache.set(bp, { at: Date.now(), data });
+    await sleep(200);                                   // ritmo blando, come lo scanner
+    return data;
+  });
+  ctQueue = lavoro.catch(() => {});                     // la coda prosegue anche dopo un errore
+  offersInFlight.set(bp, lavoro);
+  lavoro.catch(() => {}).then(() => offersInFlight.delete(bp));
+  return lavoro;
+}
+
 // ---------- perito: valuta un annuncio di Vinted / Subito / eBay ----------
 // Due tipi di annuncio, due strategie:
 //  - CARTA SINGOLA: chi vende scrive nome e numero ("Charizard ex 199/165").
@@ -1024,6 +1124,9 @@ http.createServer(async (req, res) => {
       if (u.pathname === "/api/opportunities") return send(res, 200, loadJson(OPP_FILE, null) ?? { missing: true });
       // fotografia del mercato delle carte in magazzino: la scrive scanner.js nel giro completo
       if (u.pathname === "/api/market") return send(res, 200, loadJson(path.join(__dirname, "cache-market.json"), null) ?? { missing: true });
+      // Scanner: ricerca locale e offerte CardTrader vive
+      if (u.pathname === "/api/find") return send(res, 200, await findCards((u.searchParams.get("q") || "").trim()));
+      if (u.pathname === "/api/offers") return send(res, 200, await ctOffers(+u.searchParams.get("bp")));
       if (u.pathname === "/api/scan") return send(res, 200, scanStatus());
     } else if (req.method === "POST" && u.pathname === "/api/scan") {
       return send(res, 200, startScan());

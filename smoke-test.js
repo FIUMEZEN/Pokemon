@@ -74,12 +74,19 @@ const check = (name, ok, info = "") => { results.push({ name, ok: !!ok, info });
     await ev(`window.save = () => {}; data = { watchlist: [], inventory: [] }; 1`);   // parte vuota, mai salvata
 
     console.log("\nTab:");
-    for (const t of ["perito", "deals", "search", "watch", "inv"]) {
+    for (const t of ["scan", "perito", "deals", "search", "watch", "inv"]) {
       const n0 = errors.length;
       await ev(`go(${JSON.stringify(t)}); 1`); await sleep(t === "deals" ? 2500 : 400);
       const len = await ev(`document.querySelector("#view").innerText.length`);
       check(`tab ${t}`, len > 20 && errors.length === n0, `${len} caratteri`);
     }
+
+    console.log("\nScanner:");
+    await ev(`go("scan"); scanCerca("charizard ex 199"); 1`);
+    for (let k = 0; k < 40 && !(await ev(`!!scanRes`)); k++) await sleep(150);
+    const trovate = await ev(`scanRes ? scanRes.cards.length : 0`);
+    check("ricerca istantanea nello scanner", trovate > 0, trovate + " carte");
+    check("espansione e numero nei risultati", await ev(`/199/.test(document.querySelector("#view").innerText)`));
 
     console.log("\nAffari:");
     await ev(`go("deals"); 1`); await sleep(2500);

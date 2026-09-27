@@ -116,7 +116,7 @@ if (!settings.v) {
 }
 
 let data = { watchlist: [], inventory: [] };
-let tab = "search";
+let tab = "scan";                       // al mercatino l'app si apre sullo scanner
 let lastSearch = { cards: [], extra: "" };
 const cardCache = {}; // id -> card (per ricostruire watchlist/inventario)
 
@@ -181,13 +181,140 @@ function initSettings() {
 }
 
 // ---------- viste ----------
-const TABS = { perito: "Perito", deals: "Affari", search: "Cerca", watch: "Watchlist", inv: "Inventario" };
+const TABS = { scan: "Scanner", perito: "Perito", deals: "Affari", search: "Cerca", watch: "Watchlist", inv: "Inventario" };
 function render() {
   $("#nav").innerHTML = Object.entries(TABS).map(([k, v]) => `<button class="${k === tab ? "on" : ""}" onclick="go('${k}')">${v}</button>`).join("");
   // Perito e Affari calcolano gia' i costi delle piattaforme per conto loro: li' il riquadro
   // delle commissioni non conta nulla e sul telefono occupava mezza schermata.
-  $("#settings").style.display = tab === "perito" || tab === "deals" ? "none" : "";
-  ({ perito: viewPerito, deals: viewDeals, search: viewSearch, watch: viewWatch, inv: viewInv })[tab]();
+  $("#settings").style.display = ["perito", "deals", "scan"].includes(tab) ? "none" : "";
+  ({ scan: viewScan, perito: viewPerito, deals: viewDeals, search: viewSearch, watch: viewWatch, inv: viewInv })[tab]();
+}
+
+// --- Scanner (mercatino): cerchi la carta, vedi i prezzi delle due piattaforme -----------
+// Niente calcoli: a sinistra quello che chiedono ADESSO su CardTrader, a destra il listino
+// Cardmarket del giorno. La lista delle carte guardate resta nel telefono (sessionStorage).
+let scanQ = "", scanRes = null, scanSel = null, scanOffers = null, scanErr = "", scanBusy = false, scanTimer = null;
+const COND_ORD = ["Near Mint", "Slightly Played", "Moderately Played", "Played", "Poor"];
+const COND_IT = { "Near Mint": "Near Mint", "Slightly Played": "Poco giocata", "Moderately Played": "Giocata", "Played": "Molto giocata", "Poor": "Rovinata" };
+const viste = (() => { try { return JSON.parse(sessionStorage.getItem("viste") || "[]"); } catch { return []; } })();
+const salvaViste = () => { try { sessionStorage.setItem("viste", JSON.stringify(viste.slice(0, 60))); } catch {} };
+
+async function scanCerca(q) {
+  scanQ = q;
+  clearTimeout(scanTimer);
+  if (q.trim().length < 3) { scanRes = null; return viewScan(true); }
+  scanTimer = setTimeout(async () => {
+    try { scanRes = await api("/api/find?q=" + encodeURIComponent(q)); scanErr = ""; }
+    catch (e) { scanErr = e.message; }
+    if (tab === "scan") viewScan(true);
+  }, 250);
+}
+async function scanApri(id) {
+  scanSel = scanRes?.cards.find(c => c.id === id) || scanSel;
+  scanOffers = null; scanErr = ""; scanBusy = true;
+  viewScan();
+  try { scanOffers = await api("/api/offers?bp=" + id); }
+  catch (e) { scanErr = e.message; }
+  scanBusy = false;
+  // la carta guardata finisce nella lista di giornata
+  if (scanSel && !viste.some(v => v.id === scanSel.id)) {
+    viste.unshift({ id: scanSel.id, name: scanSel.name, version: scanSel.version, exp: scanSel.exp,
+      trend: scanSel.prezzi?.trend ?? null, ct: scanOffers?.offerte?.[0]?.da ?? null });
+    salvaViste();
+  }
+  if (tab === "scan") viewScan();
+}
+function scanIndietro() { scanSel = null; scanOffers = null; scanErr = ""; viewScan(); }
+
+// offerte raggruppate come servono davanti al banchetto: prima l'italiano, poi l'inglese
+function offerteHtml() {
+  if (scanBusy) return '<div class="msg">Chiedo a CardTrader…</div>';
+  if (scanErr) return `<div class="msg err">${esc(scanErr)}</div>`;
+  if (!scanOffers?.offerte?.length) return '<div class="msg">Nessuna offerta su CardTrader in questo momento.</div>';
+  const ordine = ["it", "en", "de", "fr", "es", "pt"];
+  const gruppi = [];
+  for (const lang of [...ordine, ...new Set(scanOffers.offerte.map(o => o.lang))]) {
+    for (const rev of [false, true]) {
+      const g = scanOffers.offerte.filter(o => o.lang === lang && o.reverse === rev);
+      if (!g.length || gruppi.some(x => x.lang === lang && x.rev === rev)) continue;
+      const ordine = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };   // dalla migliore alla peggiore
+      g.sort((a, b) => ordine(a.cond) - ordine(b.cond));
+      gruppi.push({ lang, rev, g });
+    }
+  }
+  const blocco = ({ lang, rev, g }) => `<div style="margin-bottom:10px">
+      <div><b>${LANG_FLAG[lang] || ""} ${esc(LANG_NAME[lang] || lang)}</b>${rev ? ' <span class="tag">reverse</span>' : ""}</div>
+      ${g.map(o => `<div class="row" style="justify-content:space-between;gap:8px">
+        <span>${esc(COND_IT[o.cond] || o.cond)}</span>
+        <span><b>${eur(o.da)}</b> <span class="small muted">${o.n} ${o.n === 1 ? "offerta" : "offerte"}</span></span></div>`).join("")}
+    </div>`;
+  let primi = gruppi.filter(x => x.lang === "it" || x.lang === "en");
+  let altri = gruppi.filter(x => x.lang !== "it" && x.lang !== "en");
+  // carta giapponese o venduta solo in altre lingue: si mostra tutto, non una tendina vuota
+  if (!primi.length) { primi = altri; altri = []; }
+  return primi.map(blocco).join("") +
+    (altri.length ? `<details><summary class="small muted">altre lingue (${altri.length})</summary>${altri.map(blocco).join("")}</details>` : "");
+}
+
+function viewScan(soloRisultati) {
+  const box = `<div class="panel">
+      <input id="sq" placeholder="Nome della carta, o nome e numero" value="${esc(scanQ)}"
+        style="width:100%;font-size:17px;padding:10px" oninput="scanCerca(this.value)" autocomplete="off">
+      <div class="note">Cerca tra tutte le carte con un prezzo. Esempi: «charizard ex 199», «umbreon vmax», «pikachu 58/102».</div>
+    </div>`;
+
+  if (scanSel) {
+    const c = scanSel, p = c.prezzi || {};
+    const listino = scanRes?.listino ? ddmm(scanRes.listino) : "";
+    $("#view").innerHTML = `<div class="panel">
+        <button class="b" onclick="scanIndietro()">← altra carta</button>
+        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
+          ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:150px;border-radius:8px">` : ""}
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:19px"><b>${esc(c.name)}</b></div>
+            <div class="muted">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div>
+            <div class="note">Controlla che sia questa: stesso nome, stessa espansione, stesso numero.</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <b>In vendita ora su CardTrader</b>
+        <div class="note" style="margin-top:2px">Prezzi richiesti in questo momento, per lingua e condizione. CardTrader mostra le 25 offerte più economiche: se mancano le Near Mint, vuol dire che sotto ci sono solo copie giocate.</div>
+        <div style="margin-top:10px">${offerteHtml()}</div>
+        <a class="b" href="${esc(scanOffers?.url || ("https://www.cardtrader.com/cards/" + c.id))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px">Apri su CardTrader</a>
+      </div>
+      <div class="panel">
+        <b>Cardmarket</b> <span class="small muted">listino del ${esc(listino)}</span>
+        ${c.cm == null ? '<div class="msg">Questa carta non ha un prezzo Cardmarket (spesso le giapponesi).</div>' : `
+        <div class="stats" style="margin-top:10px">
+          <div><b>${eur(p.trend)}</b><span>Trend</span></div>
+          <div><b>${eur(p.avg30)}</b><span>Media 30 giorni</span></div>
+          ${p.trendHolo ? `<div><b>${eur(p.trendHolo)}</b><span>Trend reverse</span></div>` : ""}
+          ${p.avg30Holo ? `<div><b>${eur(p.avg30Holo)}</b><span>Media 30 g. reverse</span></div>` : ""}
+        </div>`}
+      </div>`;
+    return;
+  }
+
+  const righe = !scanRes ? "" : scanRes.cards.length
+    ? `<div class="scroll">${scanRes.cards.map(c => `<div class="row" style="gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="scanApri(${c.id})">
+        ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:42px;border-radius:4px">` : ""}
+        <div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="small muted">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div></div>
+        <div style="text-align:right">${c.prezzi?.trend ? `<b>${eur(c.prezzi.trend)}</b><div class="small muted">Cardmarket</div>` : '<span class="small muted">senza prezzo</span>'}</div>
+      </div>`).join("")}
+      ${scanRes.totale > scanRes.cards.length ? `<div class="note">Trovate ${scanRes.totale} carte, mostrate le prime ${scanRes.cards.length}: aggiungi il numero per restringere.</div>` : ""}</div>`
+    : '<div class="msg">Nessuna carta con questo nome.</div>';
+
+  const lista = viste.length ? `<div class="panel"><b>Carte guardate oggi (${viste.length})</b>
+      ${viste.map(v => `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0">
+        <span>${esc(v.name)} <span class="small muted">${esc(v.exp || "")}${v.version ? " · " + esc(v.version) : ""}</span></span>
+        <span class="small">${v.ct != null ? "CardTrader da <b>" + eur(v.ct) + "</b>" : ""}${v.trend ? " · CM " + eur(v.trend) : ""}</span></div>`).join("")}
+      <div class="row" style="margin-top:8px"><button class="b" onclick="viste.length=0;salvaViste();viewScan()">Svuota la lista</button></div></div>` : "";
+
+  if (soloRisultati && $("#scanres")) { $("#scanres").innerHTML = righe; return; }
+  $("#view").innerHTML = box + `<div class="panel" id="scanres">${righe}</div>` + lista;
+  const i = $("#sq");
+  if (i && scanQ) { i.focus(); i.setSelectionRange(scanQ.length, scanQ.length); }
 }
 
 // --- Perito: incolli il testo di un annuncio e ti dice cosa c'e' dentro e quanto vale ---
