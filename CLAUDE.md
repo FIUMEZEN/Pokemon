@@ -105,6 +105,17 @@ La prima scansione completa produsse 343 "occasioni" guidate da fantasie tipo *c
 
 **Due scenari di vendita, entrambi calcolati:** `profit` (paziente, si vende alla mediana, presuppone attesa che le offerte più basse si esauriscano) e `profitFast` (immediato, ci si mette sotto la 2ª offerta). Un'occasione viene scartata se `profitFast <= 0`: deve reggere anche vendendo subito.
 
+## Tab «Scanner» — il mercatino (27/09/2026, richiesta di Fabio)
+Fabio: «l'app non mi piace… mi serve però lo scanner: al mercatino inquadro una carta e mi dice il prezzo. Non mi interessa l'aritmetica, voglio uno scanner veloce che si collega o a Cardmarket o a CardTrader, punto». **In questa tab niente maxBuy, niente ROI, niente solidità**: solo i prezzi delle due piattaforme. È la tab di apertura dell'app.
+- **Ricerca locale e istantanea** (`GET /api/find`, `cardIndex()` in server.js): indice in memoria costruito dai blueprint già in cache (75.625 voci). Il testo cercato è **nome + versione + espansione**, così «charizard 151» aggancia la 199/165. Ordinati per valore, max 24. Nessuna richiesta esterna: misurato 305-626 ms.
+- **Offerte vere** (`GET /api/offers?bp=`): **una sola** richiesta a CardTrader, solo quando tocchi la carta, raggruppata per lingua, reverse e condizione. Coda unica, cache 2 minuti, richieste uguali unite, 3 tentativi con attesa sul 403; fuori graded, alterate, firmate e venditori in vacanza. Misurato 417-620 ms.
+- **La pagina**: identità della carta (immagine grande, espansione, numero, «controlla che sia questa»), poi Italiano e Inglese con le condizioni dalla migliore alla peggiore, le altre lingue in una tendina — se non ci sono offerte it/en si mostrano tutte, altrimenti sulle giapponesi la schermata sembrava vuota. Sotto, Cardmarket: trend e media a 30 giorni, colonne holo per le reverse. In fondo la lista delle carte guardate, in `sessionStorage`: non tocca `data.json`.
+- **Limite dell'API scritto nella pagina**: CardTrader dà le 25 offerte più economiche, quindi se mancano le Near Mint vuol dire che sotto ci sono solo copie giocate.
+- `cache-expansions.json`: nomi delle espansioni CardTrader, una richiesta sola e poi in cache (se fallisce si riprova al massimo ogni 10 minuti, non a ogni tasto premuto).
+- **Deciso con Sol e Grok**: per raggiungere il PC da fuori **non** un tunnel pubblico ma **Tailscale**, che dà https (quindi la fotocamera dal vivo) senza esporre l'app su internet. **L'app non ha autenticazione**: chi raggiunge l'indirizzo può sovrascrivere `data.json` e lanciare scansioni col token che può spendere. Da sistemare prima di esporla in qualsiasi modo.
+- Bug trovato da Sol e corretto prima del commit: la coda a promesse, dopo un 403, restava rigettata e bloccava **tutte** le richieste successive fino al riavvio del server.
+- Da ricordare quando si parla di «tempo reale»: **il prezzo Cardmarket è identico online e offline**, perché il listino è giornaliero. L'unica cosa davvero live sono le offerte CardTrader.
+
 ## Sezione «Affari»: scheda a tre righe (26/09/2026)
 Fabio: «è tutto troppo complicato». La scheda mostrava prezzo, spedizione, metodo, lingua, profondità e due scenari di guadagno. Ora dice tre cose:
 ```
