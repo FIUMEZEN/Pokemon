@@ -25,10 +25,10 @@ const check = (name, ok, info = "") => { results.push({ ok: !!ok }); console.log
   if (!CHROME) { console.error("Chrome non trovato."); process.exit(1); }
   const before = hash(DATA);
   let server = null;
-  try { await fetch(BASE + "/api/scan"); } catch {
+  try { await fetch(BASE + "/api/find?q=charizard"); } catch {
     console.log("Server spento: lo avvio.");
     server = spawn(process.execPath, [path.join(__dirname, "server.js")], { cwd: __dirname, stdio: "ignore" });
-    for (let i = 0; i < 60; i++) { try { await fetch(BASE + "/api/scan"); break; } catch { await sleep(500); } }
+    for (let i = 0; i < 60; i++) { try { await fetch(BASE + "/api/find?q=charizard"); break; } catch { await sleep(500); } }
   }
   const profile = path.join(require("os").tmpdir(), "pokemon-smoke-" + PORT);
   // finestra da telefono: e' li' che l'app va usata
@@ -88,7 +88,9 @@ const check = (name, ok, info = "") => { results.push({ ok: !!ok }); console.log
     check("nessun calcolo di rivendita", !/ROI|Paga al massimo|guadagn/i.test(testo), "niente aritmetica");
 
     console.log("\nSegnare un acquisto:");
-    await ev(`__ans = ["12,50"]; presa(); 1`);
+    await ev(`presa(); 1`);
+    await sleep(150);
+    await ev(`document.querySelector("#pagato").value = "12,50"; confermaPresa(); 1`);
     await sleep(200);
     const acq = await ev(`acquisti[0] || null`);
     check("acquisto registrato", acq && acq.prezzo === 12.5 && acq.nome, acq ? `${acq.nome} a ${acq.prezzo} €` : "niente");
@@ -96,6 +98,13 @@ const check = (name, ok, info = "") => { results.push({ ok: !!ok }); console.log
     check("totale speso in pagina", await ev(`/12,50/.test(document.querySelector("#view").innerText)`));
     await ev(`localStorage.getItem("acquisti") ? 1 : 0`);
     check("resta nel telefono", await ev(`JSON.parse(localStorage.getItem("acquisti")).length === 1`));
+
+    console.log("\nImmagine e robustezza:");
+    const img = await ev('(async () => { const r = await fetch("/api/immagine?bp=" + risultati.cards[0].id + "&lang=it");' +
+      ' return { ok: r.ok, tipo: r.headers.get("content-type"), byte: r.ok ? (await r.blob()).size : 0 }; })()');
+    check("immagine nella lingua scelta", img.ok && img.byte > 5000, img.ok ? img.tipo + ", " + Math.round(img.byte / 1024) + " KB" : "non disponibile");
+    const err = await ev('(async () => { try { await api("/api-inesistente/find?q=x"); return "nessun errore"; } catch (e) { return e.message; } })()');
+    check("errore di rete comprensibile", /PC non risponde|Errore 404|non riconosciuta/.test(err), err);
 
     console.log("\nScatolone:");
     await ev(`lottoCalc("carte", "500"); lottoCalc("prezzo", "30"); 1`);

@@ -5,40 +5,70 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Pokémon — al banco</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#6b7280; --line:#e5e7eb; --acc:#2563eb; --good:#15803d; --bad:#b91c1c; --warn:#b45309; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#12141a; --card:#1b1e27; --text:#e8eaef; --muted:#9aa1b0; --line:#2b2f3b; --acc:#6b9bff; --good:#4ade80; --bad:#f87171; --warn:#fbbf24; }
+  /* Testo grande, superfici piatte, molto contrasto: si usa in piedi, al sole, di fretta. */
+  :root {
+    --bg:#f4f5f7; --card:#fff; --text:#15181e; --muted:#525a68; --line:#dfe3e9;
+    --acc:#1d4ed8; --acc-soft:#e8eeff; --good:#136c37; --bad:#a51b1b; --warn:#8a5300;
+    --r:14px; --sp:8px;
   }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
-  header { padding:10px 14px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:9; }
-  h1 { font-size:16px; margin:0; white-space:nowrap; }
-  nav { display:flex; gap:4px; margin-left:auto; }
-  nav button { border:0; background:none; padding:9px 16px; border-radius:8px; cursor:pointer; color:var(--muted); font:inherit; }
-  nav button.on { background:var(--acc); color:#fff; }
-  main { max-width:820px; margin:0 auto; padding:12px 14px 40px; }
-  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
-  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-  input { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--text); }
-  button.b { font:inherit; padding:10px 14px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--text); cursor:pointer; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1116; --card:#181b22; --text:#f2f4f8; --muted:#a8b0bd; --line:#2a2f3a;
+      --acc:#7aa2ff; --acc-soft:#1b2436; --good:#5ad98a; --bad:#ff8080; --warn:#f6c453; }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font:16px/1.5 system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text);
+    -webkit-text-size-adjust:100%; }
+  header { padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line);
+    display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:9; padding-top:max(10px, env(safe-area-inset-top)); }
+  h1 { font-size:17px; margin:0; letter-spacing:-0.01em; }
+  nav { display:flex; gap:6px; margin-left:auto; }
+  nav button { border:0; background:none; min-height:48px; padding:0 18px; border-radius:12px; cursor:pointer;
+    color:var(--muted); font:inherit; font-weight:600; }
+  nav button.on { background:var(--acc-soft); color:var(--acc); }
+  main { max-width:760px; margin:0 auto; padding:16px 16px calc(96px + env(safe-area-inset-bottom)); }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  input { font:inherit; min-height:48px; padding:12px 14px; border:1px solid var(--line); border-radius:12px;
+    background:var(--bg); color:var(--text); }
+  input:focus-visible, button:focus-visible { outline:3px solid var(--acc); outline-offset:2px; }
+  .b, button.b { display:inline-flex; align-items:center; justify-content:center; font:inherit; font-weight:600;
+    min-height:48px; padding:12px 16px; border:1px solid var(--line); border-radius:12px;
+    background:var(--card); color:var(--text); cursor:pointer; text-decoration:none; }
   button.b.p { background:var(--acc); border-color:var(--acc); color:#fff; }
-  button.b.big { font-size:17px; padding:14px 18px; width:100%; }
+  button.b.big { font-size:17px; width:100%; }
   a { color:var(--acc); }
   .muted { color:var(--muted); }
-  .small { font-size:13px; }
+  .small { font-size:14px; }
   .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
-  .note { font-size:12px; color:var(--muted); margin-top:8px; }
-  .msg { padding:14px; color:var(--muted); text-align:center; }
+  .note { font-size:14px; color:var(--muted); margin-top:var(--sp); }
+  .msg { padding:20px 16px; color:var(--muted); text-align:center; }
   .err { color:var(--bad); }
-  .tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:99px; background:var(--line); color:var(--text); vertical-align:middle; }
-  /* il numero che guardi da un metro di distanza, con la carta in mano */
-  .big { font-size:34px; font-weight:700; line-height:1.1; }
-  .prezzo { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .tag { display:inline-block; font-size:12px; font-weight:600; padding:3px 9px; border-radius:99px;
+    background:var(--line); color:var(--text); vertical-align:middle; }
+  /* il numero che guardi da un metro, con la carta in mano: cifre a larghezza fissa */
+  .big { font-size:46px; font-weight:750; line-height:1.05; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+  .prezzo { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:12px 0;
+    border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
   .prezzo:last-child { border-bottom:0; }
-  .ris { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
-  .ris img { width:46px; border-radius:4px; }
+  .ris { display:flex; gap:12px; align-items:center; min-height:64px; padding:10px 0;
+    border-bottom:1px solid var(--line); cursor:pointer; }
+  .ris:active { background:var(--acc-soft); }
+  .ris img { width:52px; border-radius:6px; }
   .ris:last-child { border-bottom:0; }
-  details summary { cursor:pointer; }
+  details summary { cursor:pointer; min-height:48px; display:flex; align-items:center; }
+  /* barra fissa in basso: l'azione che premi davvero sta sempre sotto il pollice */
+  .foglio { position:fixed; left:0; right:0; bottom:0; z-index:20; background:var(--card);
+    border-top:1px solid var(--line); border-radius:18px 18px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 30px rgba(0,0,0,.18); }
+  .velo { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:19; }
+  .azione { position:fixed; left:0; right:0; bottom:0; padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+    background:var(--card); border-top:1px solid var(--line); z-index:8; }
+  /* mentre aspetta, la pagina mostra la forma del contenuto invece di un vuoto */
+  .skel { background:linear-gradient(90deg, var(--line) 25%, var(--bg) 50%, var(--line) 75%);
+    background-size:200% 100%; animation:sk 1.2s infinite; border-radius:8px; }
+  @keyframes sk { from { background-position:200% 0 } to { background-position:-200% 0 } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation:none } }
+  .carta-img { width:132px; border-radius:10px; background:var(--line); }
 </style>
 </head>
 <body>
@@ -55,9 +85,12 @@ const num = s => parseFloat(String(s ?? "").replace(",", "."));     // la virgol
 const ddmm = at => { const d = new Date(at); return !at || isNaN(d) ? "" : d.toLocaleDateString("it-IT", { day:"2-digit", month:"2-digit" }); };
 const oggi = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 async function api(url, opt) {
-  const r = await fetch(url, opt);
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error || r.status);
+  let r;
+  try { r = await fetch(url, opt); }
+  catch { throw new Error(navigator.onLine ? "Il PC non risponde: controlla che sia acceso e che l'app sia avviata." : "Il telefono è senza rete."); }
+  let j = null;
+  try { j = await r.json(); } catch { /* 502 di Tailscale: arriva una pagina HTML, non JSON */ }
+  if (!r.ok) throw new Error(j?.error || (r.status === 502 ? "Il PC non risponde: controlla che sia acceso e che l'app sia avviata." : "Errore " + r.status));
   return j;
 }
 const LANG_NAME = { it:"Italiano", en:"Inglese", de:"Tedesco", fr:"Francese", es:"Spagnolo", pt:"Portoghese", jp:"Giapponese", "zh-CN":"Cinese", kr:"Coreano" };
@@ -87,12 +120,14 @@ function vai(t) { tab = t; render(); }
 
 // ---------- CARTA: cerchi o fotografi, e vedi i prezzi ----------
 let q = "", risultati = null, scelta = null, offerte = null, errore = "", attesa = false, timer = null;
+let fuocoRicerca = false;                      // la tastiera si apre solo quando stai scrivendo tu
 let nRicerca = 0, nApertura = 0;               // contatori: vince sempre l'ultima richiesta partita
 
 async function cerca(testo) {
   q = testo;
+  fuocoRicerca = true;
   clearTimeout(timer);
-  if (testo.trim().length < 3) { risultati = null; return disegnaRisultati(); }
+  if (testo.trim().length < 3) { nRicerca++; risultati = null; return disegnaRisultati(); }
   const mio = ++nRicerca;
   timer = setTimeout(async () => {
     try {
@@ -105,14 +140,20 @@ async function cerca(testo) {
 }
 async function apri(id) {
   scelta = risultati?.cards.find(c => c.id === id) || scelta;
-  offerte = null; errore = ""; attesa = true;
+  offerte = null; errore = ""; attesa = true; imgLang = null;
   const mio = ++nApertura;
+  if (!history.state?.carta) history.pushState({ carta: id }, "");
   viewCarta();
   try {
     const o = await api("/api/offers?bp=" + id);
     if (mio !== nApertura) return;             // nel frattempo hai aperto un'altra carta
     offerte = o;
-  } catch (e) { if (mio === nApertura) errore = e.message; }
+  } catch (e) {
+    // "il PC non risponde" e "CardTrader ci frena" sono due problemi diversi
+    if (mio === nApertura) errore = !navigator.onLine ? "Il telefono è senza rete."
+      : /fetch|network|failed/i.test(e.message) ? "Il PC non risponde: controlla che sia acceso e che l'app sia avviata."
+      : e.message;
+  }
   if (mio !== nApertura) return;
   attesa = false;
   if (scelta) {
@@ -123,17 +164,35 @@ async function apri(id) {
   }
   if (tab === "carta") viewCarta();
 }
-function indietro() { scelta = null; offerte = null; errore = ""; viewCarta(); }
+function indietro(dallaStoria) {
+  scelta = null; offerte = null; errore = ""; imgLang = null;
+  if (!dallaStoria && history.state?.carta) history.back(); else viewCarta();
+}
+// il tasto indietro del telefono torna alla lista invece di uscire dall'app
+addEventListener("popstate", () => { if (!scelta) return; tab = "carta"; indietro(true); render(); });
 
 // il prezzo che conta: la più economica Near Mint, nella lingua che hai in mano
-let linguaScelta = "it", reverseScelto = false;
+let linguaScelta = "it", reverseScelto = false, imgLang = null;
+// l'illustrazione italiana è diversa da quella inglese: con la carta in mano serve quella giusta
+function immagineCarta(c) {
+  const src = imgLang === false || linguaScelta === "en" ? (c.img || "") : "/api/immagine?bp=" + c.id + "&lang=" + linguaScelta;
+  return src ? `<img class="carta-img" src="${esc(src)}" alt="" onerror="ripiegoImmagine(this)">`
+    : '<div class="carta-img" style="height:184px"></div>';
+}
+// se PokeWallet non ce l'ha in quella lingua si torna all'immagine che abbiamo già
+function ripiegoImmagine(el) {
+  if (imgLang === false || !scelta?.img) { el.replaceWith(Object.assign(document.createElement("div"),
+    { className: "carta-img", style: "height:184px" })); return; }
+  imgLang = false;
+  el.src = scelta.img;
+}
 const miglior = (lang, rev) => (offerte?.offerte || [])
   .filter(o => o.lang === lang && o.reverse === rev && o.cond === "Near Mint")
   .sort((a, b) => a.da - b.da)[0] || null;
 
 // Il prezzo grande è quello della carta che hai in mano: lingua e reverse li scegli tu con
 // due tocchi. Le altre combinazioni restano sotto, per confronto.
-function scegli(lang, rev) { linguaScelta = lang; reverseScelto = rev; viewCarta(); }
+function scegli(lang, rev) { linguaScelta = lang; reverseScelto = rev; imgLang = null; viewCarta(); }
 function prezziPrincipali() {
   const nm = miglior(linguaScelta, reverseScelto);
   const altre = [];
@@ -146,7 +205,7 @@ function prezziPrincipali() {
 }
 
 function offerteHtml() {
-  if (attesa) return '<div class="msg">Chiedo a CardTrader…</div>';
+  if (attesa) return '<div class="skel" style="height:22px;width:45%"></div><div class="skel" style="height:22px;width:70%;margin-top:10px"></div><div class="skel" style="height:22px;width:60%;margin-top:10px"></div>';
   if (errore) return `<div class="msg err">${esc(errore)}</div>`;
   if (!offerte?.offerte?.length) return '<div class="msg">Nessuno la vende in questo momento su CardTrader.</div>';
   const ordine = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };
@@ -169,15 +228,37 @@ function offerteHtml() {
 }
 
 // registra l'acquisto: un tocco, il prezzo, e il totale della giornata si aggiorna
+// Il prezzo si scrive in un pannello che sale dal basso: la tastiera non copre la carta e il
+// tasto di conferma resta sotto il pollice.
 function presa() {
   if (!scelta) return;
-  const p = num(prompt(`Quanto l'hai pagata? (€)\n${scelta.name}`, ""));
-  if (!(p >= 0) || !isFinite(p)) return;                  // solo una cifra scritta da te
+  const f = document.createElement("div");
+  f.innerHTML = `<div class="velo" onclick="chiudiFoglio()"></div>
+    <div class="foglio">
+      <div><b>${esc(scelta.name)}</b><div class="small muted">${esc(scelta.exp || "")}</div></div>
+      <div class="row" style="margin-top:14px">
+        <input id="pagato" type="text" inputmode="decimal" placeholder="€ quanto hai pagato" style="flex:1;font-size:22px">
+        <button class="b p" onclick="confermaPresa()">Segna</button>
+      </div>
+      <div class="note">Quanto l'hai pagata davvero, non quanto vale.</div>
+    </div>`;
+  f.id = "foglio";
+  document.body.appendChild(f);
+  const i = $("#pagato");
+  i.focus();
+  i.addEventListener("keydown", e => { if (e.key === "Enter") confermaPresa(); });
+}
+function chiudiFoglio() { $("#foglio")?.remove(); }
+function confermaPresa() {
+  const p = num($("#pagato")?.value);
+  if (!(p >= 0) || !isFinite(p)) { $("#pagato")?.focus(); return; }
+  chiudiFoglio();
   const nm = miglior(linguaScelta, reverseScelto);
   acquisti = [{ id: scelta.id, nome: scelta.name, exp: scelta.exp, version: scelta.version, prezzo: p,
     lang: linguaScelta, reverse: reverseScelto, giorno: oggi(), at: new Date().toISOString(),
     ct: nm?.da ?? null, cm: scelta.prezzi?.trend ?? null }, ...acquisti];
   salva("acquisti", acquisti);
+  try { navigator.vibrate?.(25); } catch {}
   vai("giornata");
 }
 
@@ -188,7 +269,7 @@ function viewCarta() {
       <div class="panel">
         <button class="b" onclick="indietro()">← altra carta</button>
         <div style="display:flex;gap:14px;margin-top:10px">
-          ${c.img ? `<img src="${esc(c.img)}" alt="" style="width:120px;border-radius:8px">` : ""}
+          ${immagineCarta(c)}
           <div style="flex:1;min-width:0">
             <div style="font-size:18px"><b>${esc(c.name)}</b></div>
             <div class="muted small">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div>
@@ -201,12 +282,13 @@ function viewCarta() {
           ${["it", "en"].map(l => `<button class="b ${linguaScelta === l ? "p" : ""}" onclick="scegli('${l}', ${reverseScelto})">${LANG_FLAG[l]} ${LANG_NAME[l]}</button>`).join("")}
           <button class="b ${reverseScelto ? "p" : ""}" onclick="scegli('${linguaScelta}', ${!reverseScelto})">reverse</button>
         </div>
+        ${attesa && !nm ? '<div class="skel" style="height:52px;width:62%"></div><div class="skel" style="height:18px;width:80%;margin-top:10px"></div>' : ""}
         ${nm ? `<div class="big">${eur(nm.da)}</div>
           <div class="muted">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])}${reverseScelto ? " reverse" : ""} Near Mint · la più economica in vendita ora (${nm.n} offerte)</div>
           ${altre.map(r => `<div class="prezzo"><span>${esc(r.eti)}</span><b>${eur(r.val)}</b></div>`).join("")}`
-          : `<div class="msg">${attesa ? "Chiedo a CardTrader…" : "Nessuna Near Mint così in vendita ora: guarda sotto le altre condizioni."}</div>`}
-        <button class="b p big" style="margin-top:12px" onclick="presa()">L'ho presa: segna il prezzo</button>
+          : attesa ? "" : `<div class="msg">Nessuna Near Mint così in vendita ora: guarda sotto le altre condizioni.</div>`}
       </div>
+      <div class="azione"><button class="b p big" onclick="presa()">L'ho presa: segna il prezzo</button></div>
       <div class="panel">
         <b>Tutte le offerte su CardTrader</b>
         <div class="note" style="margin-top:2px">Prezzi richiesti adesso. CardTrader mostra le 25 più economiche: se mancano le Near Mint, sotto ci sono solo copie giocate.</div>
@@ -235,10 +317,14 @@ function viewCarta() {
       <div class="note">Scrivi tre lettere del nome: «charizard 199», «umbreon vmax», «pikachu 58/102». La foto è più lenta e sbaglia più spesso.</div>
     </div>
     <div class="panel" id="lista">${listaHtml()}</div>
+    ${!risultati && viste.length ? `<div class="panel"><b>Ultime guardate</b>
+      ${viste.slice(0, 5).map(v => `<div class="ris" onclick="riapri(${v.id})">
+        <div style="flex:1;min-width:0"><b>${esc(v.nome)}</b><div class="small muted">${esc(v.exp || "")}</div></div>
+        <div class="small">${v.da != null ? "da <b>" + eur(v.da) + "</b>" : ""}</div></div>`).join("")}</div>` : ""}
     ${memoriaRotta ? '<div class="panel err small">Questo telefono non sta salvando la lista: se chiudi la pagina perdi gli acquisti segnati.</div>' : ""}
     ${diOggi(acquisti).length ? `<div class="panel"><b>Oggi hai speso ${eur(spesoOggi())}</b> <span class="small muted">su ${diOggi(acquisti).length} carte</span></div>` : ""}`;
   const i = $("#q");
-  if (i && q) { i.focus(); i.setSelectionRange(q.length, q.length); }
+  if (i && q && fuocoRicerca) { i.focus(); i.setSelectionRange(q.length, q.length); fuocoRicerca = false; }
 }
 function listaHtml() {
   if (errore) return `<div class="msg err">${esc(errore)}</div>`;

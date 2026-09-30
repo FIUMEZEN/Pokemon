@@ -14,7 +14,6 @@ const path = require("path");
 // pubblica chiunque potrebbe leggere e modificare watchlist e inventario.
 const PHONE = process.argv.includes("--telefono");
 
-const DATA_FILE = path.join(__dirname, "data.json");
 const META_FILE = path.join(__dirname, "cache-cards.json");
 const GUIDE_FILE = path.join(__dirname, "cache-priceguide.json");
 const TCGDEX = "https://api.tcgdex.net/v2/en";
@@ -22,7 +21,6 @@ const GUIDE_URL = "https://downloads.s3.cardmarket.com/productCatalog/priceGuide
 const GUIDE_TTL = 6 * 3600 * 1000;       // ogni quanto si CHIEDE a Cardmarket se c'e' un listino nuovo
 const HIST_DIR = path.join(__dirname, "storico-prezzi");   // un file al giorno, compresso
 const HIST_DAYS = 120;
-const MAX_DETAILS = 80;                  // carte per ricerca (una richiesta a TCGdex ciascuna, poi in cache)
 
 const loadJson = (file, def) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return def; } };
 const saveJson = (file, obj) => { fs.writeFileSync(file + ".tmp", JSON.stringify(obj)); fs.renameSync(file + ".tmp", file); };
@@ -151,7 +149,6 @@ async function cardMeta(id) {
     id: c.id, name: c.name, number: c.localId, rarity: c.rarity,
     set: c.set?.name, image: c.image ? `${c.image}/low.webp` : null,
     idProduct,
-    fallback: v.pricing?.cardmarket ? { ...v.pricing.cardmarket, date: v.pricing.cardmarket.updated } : null,
     // abilita' e attacchi: Cardmarket li scrive nel nome del prodotto ("Mewtwo LV.X [Psybarrier | Giga Burn]"),
     // e servono ad abbinare le carte quando i nomi delle due fonti non coincidono
     moves: [...(c.abilities || []), ...(c.attacks || [])].map(a => a.name).filter(Boolean),
@@ -161,81 +158,12 @@ async function cardMeta(id) {
   return m;
 }
 
-function toCard(m, g) {
-  const p = m.idProduct != null ? g.prices.get(m.idProduct) : null;
-  const src = p || (m.fallback && { low: m.fallback.low, trend: m.fallback.trend, avg7: m.fallback.avg7, avg30: m.fallback.avg30 });
-  return {
-    id: m.id, name: m.name, number: m.number, rarity: m.rarity, set: m.set, image: m.image,
-    cardmarketUrl: `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${encodeURIComponent(`${m.name} ${m.number}`)}`,
-    idProduct: m.idProduct,
-    updated: p ? g.createdAt.slice(0, 10).replace(/-/g, "/") : (m.fallback?.date || "").slice(0, 10).replace(/-/g, "/") || undefined,
-    cm: src ? { trend: src.trend, low: src.low, avg7: src.avg7, avg30: src.avg30 } : { },
-  };
-}
-
-async function pool(items, n, fn) {
-  const out = []; let i = 0;
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (i < items.length) { const k = i++; try { out[k] = await fn(items[k]); } catch { out[k] = null; } }
-  }));
-  return out;
-}
-
-async function search(q, setName) {
-  if (!q && !setName) return { cards: [] };
-  const g = await ensureGuide();
-  const params = new URLSearchParams();
-  if (q) params.set("name", q);
-  if (setName) params.set("set.name", setName);
-  const briefs = (await getJson(`${TCGDEX}/cards?${params}`)).filter(b => !/^[A-Z]\d/.test(b.id)); // esclude le carte digitali TCG Pocket
-  const total = briefs.length;
-  const metas = (await pool(briefs.slice(0, MAX_DETAILS), 10, b => cardMeta(b.id))).filter(m => m && m.idProduct != null);
-  const cards = metas.map(m => toCard(m, g)).sort((a, b) => (b.cm.trend ?? 0) - (a.cm.trend ?? 0));
-  return { cards, total, shown: Math.min(total, MAX_DETAILS), priceDate: g.createdAt };
-}
-
-async function getCard(id) {
-  const g = await ensureGuide();
-  return { card: toCard(await cardMeta(id), g) };
-}
-
-// ---------- prezzi vivi dell'inventario ----------
-// Le carte comprate da Affari hanno solo il blueprint CardTrader. Il ponte verso il listino
-// Cardmarket e' card_market_ids, gia' in cache-blueprints.json (lo scrive scanner.js):
-// nessuna richiesta a CardTrader. Il file si rilegge solo se lo scanner l'ha cambiato.
-const BP_FILE = path.join(__dirname, "cache-blueprints.json");
-let bpIndex = null, bpMtime = 0;
-function blueprintCm(id) {
-  const mtime = fs.statSync(BP_FILE, { throwIfNoEntry: false })?.mtimeMs || 0;
-  if (!bpIndex || mtime !== bpMtime) {
-    bpIndex = new Map(); bpMtime = mtime;
-    for (const list of Object.values(loadJson(BP_FILE, {})))
-      for (const b of list || []) if (b.card_market_ids?.length) bpIndex.set(b.id, b.card_market_ids[0]);
-  }
-  return bpIndex.get(id) ?? null;
-}
-
-// items: [{ tcg: "sv3pt5-6" }] (da Cerca) oppure [{ bp: 117192, rev: false }] (da Affari).
-// Per le carte da Affari il riferimento e' quello dello scanner: il piu' prudente tra trend e avg30
-// (colonne -holo per le reverse).
-async function livePrices(items) {
-  const g = await ensureGuide();
-  const out = await pool(items.slice(0, 500), 10, async it => {
-    if (it.tcg) return { card: toCard(await cardMeta(String(it.tcg)), g) };
-    const idProduct = blueprintCm(+it.bp);
-    const p = idProduct != null ? g.prices.get(idProduct) : null;
-    if (!p) return { idProduct, ref: null };
-    const trend = it.rev ? p.trendHolo : p.trend, avg30 = it.rev ? p.avg30Holo : p.avg30;
-    const refs = [trend, avg30].filter(x => x > 0);
-    return { idProduct, trend: trend ?? null, avg30: avg30 ?? null, ref: refs.length ? Math.min(...refs) : null };
-  });
-  return { priceDate: g.createdAt, items: out };
-}
 
 // ---------- Scanner: cerca una carta e mostra i prezzi delle due piattaforme ----------
 // Niente calcoli: si mostra quello che dicono Cardmarket (listino del giorno) e CardTrader
 // (offerte vere, adesso). La ricerca e' locale sui blueprint gia' in cache: istantanea.
 const CT_API = "https://api.cardtrader.com/api/v2";
+const BP_FILE = path.join(__dirname, "cache-blueprints.json");   // il catalogo locale della ricerca
 const EXP_FILE = path.join(__dirname, "cache-expansions.json");
 const ctToken = () => { try { return fs.readFileSync(path.join(__dirname, "cardtrader-token.txt"), "utf8").trim(); } catch { return ""; } };
 
@@ -330,6 +258,51 @@ async function ctOffers(bp) {
   offersInFlight.set(bp, lavoro);
   lavoro.catch(() => {}).then(() => offersInFlight.delete(bp));
   return lavoro;
+}
+
+// ---------- immagine della carta nella lingua giusta (PokeWallet) ----------
+// Al banco serve confrontare quello che hai in mano: l'illustrazione italiana e quella inglese
+// sono diverse, e le immagini dei blueprint CardTrader sono quasi sempre inglesi. PokeWallet le
+// dà in 6 lingue, ma la chiave non deve uscire dal server: l'immagine si scarica qui e si passa
+// al telefono. Il collegamento carta -> PokeWallet si cerca una volta e si tiene in cache.
+const PW_FILE = path.join(__dirname, "cache-pokewallet.json");
+const pwKey = () => { try { return fs.readFileSync(path.join(__dirname, "pokewallet-key.txt"), "utf8").trim(); } catch { return ""; } };
+let pwMap = null;
+
+async function pwId(bp) {
+  const key = pwKey();
+  if (!key) return null;
+  pwMap ??= loadJson(PW_FILE, {});
+  if (bp in pwMap) return pwMap[bp];                      // si ricorda anche "non trovata"
+  const carta = cardIndex().find(c => c.id === bp);
+  if (!carta) return null;
+  const numero = (carta.version || "").match(/\d+[a-z]?\/\d+/i)?.[0] || "";
+  const q = [carta.name.replace(/\s*\(.*?\)\s*/g, " ").trim(), numero].filter(Boolean).join(" ");
+  try {
+    const r = await fetch("https://api.pokewallet.io/search?q=" + encodeURIComponent(q) + "&limit=5",
+      { headers: { "X-API-Key": key }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;                                // quota finita o servizio giù: si tace
+    const j = await r.json();
+    const lista = j?.data || j?.results || j?.cards || [];
+    // col numero in mano si pretende che combaci: stesso nome e numero diverso = altra carta
+    // senza numero non si sceglie a caso: un'immagine sbagliata è peggio di nessuna immagine
+  const scelta = numero ? lista.find(c => (c.card_info?.card_number || "") === numero) : null;
+    pwMap[bp] = scelta?.id || null;
+    try { fs.writeFileSync(PW_FILE, JSON.stringify(pwMap)); } catch {}
+    return pwMap[bp];
+  } catch { return null; }
+}
+
+async function pwImage(bp, lang) {
+  const key = pwKey();
+  const id = key ? await pwId(bp) : null;
+  if (!id) return null;
+  try {
+    const r = await fetch("https://api.pokewallet.io/images/" + id + "?size=high&lang=" + encodeURIComponent(lang),
+      { headers: { "X-API-Key": key }, signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return null;
+    return { tipo: r.headers.get("content-type") || "image/jpeg", dati: Buffer.from(await r.arrayBuffer()) };
+  } catch { return null; }
 }
 
 // ---------- perito: valuta un annuncio di Vinted / Subito / eBay ----------
@@ -1018,92 +991,6 @@ function finish(out) {
   return out;
 }
 
-// data.json contiene acquisti e vendite: se si corrompe sparisce la contabilita'. Prima di
-// sovrascriverlo si tiene una copia del giorno (la prima scrittura di ogni giornata), 30 giorni.
-const BACKUP_DIR = path.join(__dirname, "copie-data");
-function backupData() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return;
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    // giorno locale, non UTC: altrimenti in Italia la copia "del giorno" cambia all'una di notte
-    const d = new Date();
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const file = path.join(BACKUP_DIR, `data-${day}.json`);
-    if (!fs.existsSync(file)) fs.copyFileSync(DATA_FILE, file);
-    const limit = Date.now() - 30 * 86400000;
-    for (const f of fs.readdirSync(BACKUP_DIR)) {
-      const d = Date.parse(f.slice(5, 15));
-      if (!isNaN(d) && d < limit) fs.unlinkSync(path.join(BACKUP_DIR, f));
-    }
-  } catch (e) { console.log("Copia di data.json non riuscita:", e.message); }
-}
-
-// ---------- scansioni "Affari": automatiche finche' il server e' acceso ----------
-// Due giri, entrambi in un processo a parte (scanner.js):
-//  - VELOCE ogni 5 minuti, solo sulle ~80 espansioni "calde" (~20 secondi, ~80 richieste);
-//  - COMPLETO ogni ora, su tutte (~800 richieste), che ricalcola quali sono le calde.
-// In media ~0,5 richieste al secondo. Il blocco Cloudflare del 21/09 era nato da ~5.000
-// richieste in pochi minuti. Se una scansione fallisce, i giri automatici si fermano 15 minuti.
-// Di default sono SPENTI: si accendono con "node server.js --scansioni".
-const { spawn } = require("child_process");
-const OPP_FILE = path.join(__dirname, "opportunities.json");
-const FAST_EVERY = 5 * 60 * 1000, FULL_EVERY = 60 * 60 * 1000, BUTTON_GAP = 2 * 60 * 1000, BACKOFF = 15 * 60 * 1000;
-// Dal 27/09/2026 l'app e' uno strumento da banco: la sezione Affari non c'e' piu' e i giri
-// automatici servirebbero solo a riempire il diario, rubando richieste CardTrader allo scanner
-// (stesso token, stesso Cloudflare). Restano possibili con "node server.js --scansioni".
-const AUTO = process.argv.includes("--scansioni");
-const scanJob = { running: false, mode: null, done: 0, total: 0, found: 0, fresh: 0, error: null, errorAt: 0 };
-const oppTimes = () => {
-  const o = loadJson(OPP_FILE, null);
-  const last = Date.parse(o?.generatedAt || 0) || 0;
-  return { last, full: Date.parse(o?.fullAt || o?.generatedAt || 0) || 0, hasHot: !!(o?.hot?.length || o?.opportunities?.length) };
-};
-function nextAuto() {
-  const t = oppTimes();
-  if (!t.last || !t.hasHot || Date.now() - t.full >= FULL_EVERY) return { mode: "completo", at: Math.max(t.full + FULL_EVERY, scanJob.errorAt + BACKOFF) };
-  return { mode: "veloce", at: Math.max(Math.min(t.last + FAST_EVERY, t.full + FULL_EVERY), scanJob.errorAt + BACKOFF) };
-}
-
-function scanStatus() {
-  const t = oppTimes(), n = nextAuto();
-  return { ...scanJob, auto: AUTO, lastScanAt: t.last || null, fullAt: t.full || null,
-    next: AUTO ? { mode: n.mode, inMinutes: Math.max(0, Math.ceil((n.at - Date.now()) / 60000)) } : null,
-    waitMinutes: Math.max(0, Math.ceil((t.last + BUTTON_GAP - Date.now()) / 60000)) };
-}
-// Pulsante: giro veloce, se l'ultimo giro ha almeno 2 minuti (senza espansioni calde: completo).
-function startScan(mode) {
-  if (scanJob.running) return { ok: false, error: "Una scansione è già in corso." };
-  const t = oppTimes();
-  if (!mode) {
-    const wait = Math.ceil((t.last + BUTTON_GAP - Date.now()) / 60000);
-    if (wait > 0) return { ok: false, error: `Aggiornate meno di 2 minuti fa: riprova tra ${wait} ${wait === 1 ? "minuto" : "minuti"}.` };
-    mode = t.hasHot ? "veloce" : "completo";
-  }
-  Object.assign(scanJob, { running: true, mode, done: 0, total: 0, found: 0, fresh: 0, error: null });
-  const p = spawn(process.execPath, [path.join(__dirname, "scanner.js"), ...(mode === "veloce" ? ["--hot"] : [])], { cwd: __dirname });
-  let out = "";
-  p.stdout.on("data", d => { out += d; if (out.length > 1e5) out = out.slice(-2e4); });
-  let err = "";
-  p.stdout.on("data", d => {
-    const m = [...String(d).matchAll(/(\d+)\/(\d+) espansioni · (\d+) occasioni/g)].pop();
-    if (m) Object.assign(scanJob, { done: +m[1], total: +m[2], found: +m[3] });
-  });
-  p.stderr.on("data", d => { err += d; });
-  p.on("close", code => {
-    scanJob.running = false;
-    scanJob.fresh = +((out.match(/\((\d+) nuove\)/) || [])[1] || 0);
-    scanJob.error = code === 0 ? null
-      : ((err.match(/ERRORE:?\s*(.+)/) || err.match(/\w*Error:\s*(.+)/) || [])[1] || `la scansione si è fermata (codice ${code})`).trim();
-    if (scanJob.error) scanJob.errorAt = Date.now();
-    console.log(`[${new Date().toLocaleTimeString("it-IT")}] giro ${mode}: ${scanJob.error ? "ERRORE " + scanJob.error : `${scanJob.fresh} occasioni nuove`}`);
-  });
-  return { ok: true };
-}
-if (AUTO) setInterval(() => {
-  if (scanJob.running) return;
-  const n = nextAuto();
-  if (Date.now() >= n.at) startScan(n.mode);
-}, 30 * 1000).unref();
 
 // ---------- server ----------
 const send = (res, code, body, type = "application/json; charset=utf-8") => {
@@ -1121,37 +1008,25 @@ http.createServer(async (req, res) => {
   try {
     if (req.method === "GET") {
       if (u.pathname === "/") return send(res, 200, fs.readFileSync(path.join(__dirname, "index.html")), "text/html; charset=utf-8");
-      if (u.pathname === "/api/search") return send(res, 200, await search((u.searchParams.get("q") || "").trim(), (u.searchParams.get("set") || "").trim()));
-      if (u.pathname === "/api/card") return send(res, 200, await getCard(u.searchParams.get("id")));
-      if (u.pathname === "/api/data") return send(res, 200, loadJson(DATA_FILE, { watchlist: [], inventory: [] }));
-      if (u.pathname === "/api/opportunities") return send(res, 200, loadJson(OPP_FILE, null) ?? { missing: true });
       // fotografia del mercato delle carte in magazzino: la scrive scanner.js nel giro completo
-      if (u.pathname === "/api/market") return send(res, 200, loadJson(path.join(__dirname, "cache-market.json"), null) ?? { missing: true });
       // Scanner: ricerca locale e offerte CardTrader vive
       if (u.pathname === "/api/find") return send(res, 200, await findCards((u.searchParams.get("q") || "").trim()));
       if (u.pathname === "/api/offers") return send(res, 200, await ctOffers(+u.searchParams.get("bp")));
-      if (u.pathname === "/api/scan") return send(res, 200, scanStatus());
-    } else if (req.method === "POST" && u.pathname === "/api/scan") {
-      return send(res, 200, startScan());
-    } else if (req.method === "POST" && u.pathname === "/api/live") {
-      const b = JSON.parse(await readBody(req));
-      if (!Array.isArray(b.items)) return send(res, 400, { error: "formato non valido" });
-      return send(res, 200, await livePrices(b.items));
+      if (u.pathname === "/api/immagine") {
+        const lang = (u.searchParams.get("lang") || "it").slice(0, 5);
+        const img = await pwImage(+u.searchParams.get("bp"), lang);
+        if (!img) return send(res, 404, { error: "nessuna immagine in questa lingua" });
+        res.writeHead(200, { "Content-Type": img.tipo, "Cache-Control": "max-age=86400" });
+        return res.end(img.dati);
+      }
     } else if (req.method === "POST" && u.pathname === "/api/appraise") {
       const b = JSON.parse(await readBody(req));
       const s = v => typeof v === "string" ? v.slice(0, 8000) : "";
       const input = { text: s(b.text), title: s(b.title), meta: s(b.meta), body: s(b.body), url: s(b.url), ask: parseFloat(b.ask) || null, scan: !!b.scan };
       if (!input.text.trim() && !input.title.trim()) return send(res, 400, { error: "testo mancante" });
       return send(res, 200, await appraise(input));
-    } else if (req.method === "PUT" && u.pathname === "/api/data") {
-      const body = JSON.parse(await readBody(req));
-      if (!Array.isArray(body.watchlist) || !Array.isArray(body.inventory)) return send(res, 400, { error: "formato non valido" });
-      backupData();                                  // prima di sovrascrivere: una copia al giorno
-      fs.writeFileSync(DATA_FILE + ".tmp", JSON.stringify({ watchlist: body.watchlist, inventory: body.inventory }, null, 2));
-      fs.renameSync(DATA_FILE + ".tmp", DATA_FILE);
-      return send(res, 200, { ok: true });
     }
-    send(res, 404, { error: "not found" });
+    send(res, 404, { error: "Richiesta non riconosciuta dall app." });
   } catch (e) {
     send(res, 502, { error: e.message });
   }

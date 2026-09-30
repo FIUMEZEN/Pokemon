@@ -12,6 +12,27 @@ Fabio: «l'app sarà solo e unicamente un'app da usare in situazioni tipo mercat
 - **Giri automatici SPENTI di default**: si accendono con `node server.js --scansioni`. Senza Affari servirebbero solo al diario, e ruberebbero richieste CardTrader allo scanner (stesso token, stesso Cloudflare). Conseguenza da sapere: **il diario si ferma**, e le occasioni nate e sparite nel frattempo non si recuperano.
 - Le sezioni più sotto descrivono anche parti **non più nella UI**: restano perché il codice esiste ancora e perché contengono misure che non vanno rifatte (trappole dei dati, lingue, spedizioni, economia del mestiere).
 
+## Interfaccia da telefono e potatura (30/09/2026)
+Fabio: «deve essere utile da cellulare, funzionare bene e la UX/UI deve essere moderna». Rivisto con Sol e Grok, che hanno dato la stessa lista.
+- **Leggibilità al sole**: corpo 16 px, testo secondario 14 px, grigio più scuro (`--muted #525a68`), prezzo **46 px con cifre tabulari**. Niente gradienti, vetro, animazioni decorative: peggiorano il contrasto all'aperto.
+- **Tocchi**: minimo 48 px su tab, pulsanti, righe dei risultati, `<summary>`, e anche su `label` e `a` (la classe `.b` non era applicata a quelli).
+- **Azione principale in basso**: «L'ho presa» in una barra fissa (`.azione`), con `env(safe-area-inset-bottom)`.
+- **Il prezzo pagato si scrive in un pannello che sale dal basso** (`.foglio`), non più con `prompt()`, che copriva la carta. Campo `type="text" inputmode="decimal"`: **il campo numerico di HTML rifiuta la virgola**, e in Italia si scrive «12,50» (trovato dal test).
+- **Attesa e errori**: scheletri animati al posto di «Chiedo a CardTrader…»; `api()` distingue «telefono senza rete», «il PC non risponde» (anche sul 502 HTML di Tailscale, che non è JSON) e l'errore del server.
+- **Tasto indietro del telefono**: `history.pushState` all'apertura della carta e `popstate` che torna alla lista (rimettendo anche la scheda giusta se eri in Giornata). La tastiera non si riapre da sola tornando indietro.
+- **Ultime guardate** ora sulla schermata Carta, non solo in Giornata; vibrazione breve alla conferma dell'acquisto.
+
+### Immagine nella lingua della carta (PokeWallet)
+L'illustrazione italiana è diversa dall'inglese e le immagini dei blueprint CardTrader sono quasi sempre inglesi. `GET /api/immagine?bp=&lang=` cerca la carta su PokeWallet (cache `cache-pokewallet.json`), scarica l'immagine **con la chiave solo lato server** e la passa al telefono; se manca si ripiega sull'immagine del blueprint, e se non c'è nemmeno quella si mostra un riquadro vuoto invece di un'immagine rotta.
+- **Senza numero di collezione non si indovina**: niente immagine, perché una sbagliata è peggio di nessuna.
+- Chiave in `pokewallet-key.txt` (fuori da git). **Limiti gratis: 100 richieste/ora, 1.000 al giorno.**
+- Misurato il 29/09/2026: i prezzi di PokeWallet sono **gli stessi** del listino Cardmarket che scarichiamo gratis (stessi campi, stessi valori). Non sostituisce CardTrader, che è l'unico a dare **offerte vere di venditori**. Quindi PokeWallet serve solo per le immagini localizzate (e come riserva se un giorno l'app girasse senza il PC).
+
+### Cosa è stato tolto dal server (1220 → ~1050 righe)
+Rotte morte: `/api/search`, `/api/card`, `GET` e `PUT /api/data`, `/api/opportunities`, `/api/market`, `GET` e `POST /api/scan`, `POST /api/live`. Funzioni: `search`, `getCard`, `livePrices`, `toCard`, `pool`, `backupData` e **tutto lo scheduler dei giri automatici**. `smoke-test.js` ora sonda `/api/find`.
+**Restano**: `/api/find` (ricerca locale sui blueprint), `/api/offers` (offerte CardTrader), `/api/immagine`, `/api/appraise` (serve al lettore foto: provato, riconosce ancora la carta).
+**Sul disco non si cancella nulla**: `storico-prezzi/`, `deals-log.json`, `data.json`, `copie-data/` sono dati irripetibili; `scanner.js` e `build-catalog.js` restano eseguibili a mano.
+
 ## Avvio
 - `node server.js` → http://localhost:8000. Nessuna dipendenza da installare.
 - `node server.js --telefono` → raggiungibile anche dal telefono sulla stessa Wi-Fi (stampa l'indirizzo). Solo sulla rete di casa.
