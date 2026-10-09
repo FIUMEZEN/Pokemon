@@ -12,6 +12,22 @@ Fabio: «l'app sarà solo e unicamente un'app da usare in situazioni tipo mercat
 - **Giri automatici SPENTI di default**: si accendono con `node server.js --scansioni`. Senza Affari servirebbero solo al diario, e ruberebbero richieste CardTrader allo scanner (stesso token, stesso Cloudflare). Conseguenza da sapere: **il diario si ferma**, e le occasioni nate e sparite nel frattempo non si recuperano.
 - Le sezioni più sotto descrivono anche parti **non più nella UI**: restano perché il codice esiste ancora e perché contengono misure che non vanno rifatte (trappole dei dati, lingue, spedizioni, economia del mestiere).
 
+## Primo mercatino vero (09/10/2026): tre prezzi diversi, uno solo in grande
+Fabio: «usare CardTrader per vedere a quanto venivano vendute non si è dimostrato ottimale perché il valore effettivo delle carte era diverso». Interrogato: **l'app mostrava più del valore vero**, e il confronto l'ha fatto aprendo **Cardmarket dal telefono**.
+Misurato quel giorno, e da non rifare:
+- **La Near Mint più economica su CardTrader non è gonfiata**: su 13 carte con mercato vero sta a **0,99× (italiano) e 1,02× (inglese)** del riferimento Cardmarket `min(trend, avg30)`.
+- **Il «da X €» che Cardmarket mostra in grande sul telefono è il campo `low`**, e sta a **0,35×** del riferimento sulle stesse 13 carte (**mediana 0,57×**, 25° 0,30×, 75° 0,90× su 23.802 carte con riferimento 2-200 €; sotto 0,6× nel 52% dei casi). Casi estremi reali: Raichu riferimento 12,60 € con `low` 0,50 €; Weezing 1,44 € con `low` 0,10 €.
+- Quindi **non era un errore nei dati ma nella scelta del numero grande**: l'app metteva in cima un prezzo *richiesto* (≈1,0× il valore), il telefono mostrava il *minimo assoluto* (≈0,35×), e il valore stava in mezzo.
+
+**Gerarchia attuale della schermata Carta** (rivista con Sol e Grok, d'accordo su tutto tranne dove indicato):
+1. **Numero grande = valore di listino Cardmarket**, `min(trend, avg30)`, colonne holo quando si scegle il reverse (se Cardmarket non prezza il reverse si usa la normale **dicendolo**). Etichetta: «quanto vale vendendola con calma», con sotto i due numeri da cui viene.
+2. **Avviso se trend e media 30 giorni divergono oltre 2×** (stesso test di `solidity()`): su quelle carte il valore è un'ipotesi. Caso vero: Raichu Expedition, trend 348,45 € contro media 159,19 €.
+3. **Il prezzo richiesto su CardTrader resta, più piccolo**: «per venderla presto devi stare qui», con tutte le condizioni sotto.
+4. **`low` solo in una tendina** («perché sul telefono Cardmarket dice da X €»), perché è il numero che Fabio vede e deve capire, **e non entra in nessun calcolo** (resta il divieto misurato).
+5. Nota fissa: i prezzi sono **lordi** (commissioni ~6-7% più imballaggio).
+- **Lo 0,75 per l'italiano (`IT_FACTOR`) non moltiplica il numero grande.** Sol lo riteneva difendibile, **Grok no** e ha vinto: viene da 413 carte con fascia 0,43-0,78, è ricavato da prezzi *richiesti*, e un coefficiente unico sarebbe inventato. Resta una riga di testo: «il listino non distingue la lingua, le italiane si vendono spesso intorno a tre quarti».
+- Limite che resta scritto nella pagina: le offerte CardTrader sono **le 25 più economiche**, quindi i conteggi non sono tutto il mercato.
+
 ## Interfaccia da telefono e potatura (30/09/2026)
 Fabio: «deve essere utile da cellulare, funzionare bene e la UX/UI deve essere moderna». Rivisto con Sol e Grok, che hanno dato la stessa lista.
 - **Leggibilità al sole**: corpo 16 px, testo secondario 14 px, grigio più scuro (`--muted #525a68`), prezzo **46 px con cifre tabulari**. Niente gradienti, vetro, animazioni decorative: peggiorano il contrasto all'aperto.
