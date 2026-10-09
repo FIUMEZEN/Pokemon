@@ -198,21 +198,36 @@ async function ensureExpansions() {
   cards = null;
 }
 
+// Col numero di collezione da solo ("28/129") si trova la carta, ma "28/129" sta anche dentro
+// "128/129": le corrispondenze esatte (zeri iniziali a parte) vanno messe davanti.
+function numeriDi(parole) {
+  const out = [];
+  for (const p of parole) {
+    const m = /^([0-9]{1,4})(?:[/]([0-9]{1,4}))?$/.exec(p);
+    if (!m) continue;
+    const n = "0*" + Number(m[1]);
+    out.push(new RegExp("(?:^|[^0-9])" + (m[2] ? n + "[/]0*" + Number(m[2]) : n) + "(?:$|[^0-9])"));
+  }
+  return out;
+}
+
 // Ricerca per nome e numero: "chariz 199" trova Charizard ex 199/165.
 async function findCards(q) {
   const g = await ensureGuide();
   await ensureExpansions().catch(() => {});
   const parole = norm(q).split(" ").filter(Boolean);
   if (!parole.length) return { cards: [] };
+  const numeri = numeriDi(parole);
   const out = [];
   for (const c of cardIndex()) {
     if (!parole.every(p => c.cerca.includes(p))) continue;
     const p = c.cm != null ? g.prices.get(c.cm) : null;
-    out.push({ ...c, cerca: undefined,
+    out.push({ ...c, cerca: undefined, esatto: numeri.every(r => r.test(c.cerca)),
       prezzi: p ? { trend: p.trend || null, avg30: p.avg30 || null, trendHolo: p.trendHolo || null, avg30Holo: p.avg30Holo || null } : null });
   }
-  // prima le carte che valgono di piu': al mercatino sono quelle che contano
-  out.sort((a, b) => (b.prezzi?.trend ?? b.prezzi?.avg30 ?? -1) - (a.prezzi?.trend ?? a.prezzi?.avg30 ?? -1));
+  // prima il numero esatto, poi le carte che valgono di piu': al mercatino sono quelle che contano
+  out.sort((a, b) => (b.esatto - a.esatto) ||
+    (b.prezzi?.trend ?? b.prezzi?.avg30 ?? -1) - (a.prezzi?.trend ?? a.prezzi?.avg30 ?? -1));
   return { cards: out.slice(0, 24), totale: out.length, listino: g.createdAt };
 }
 
