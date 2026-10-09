@@ -140,7 +140,7 @@ async function cerca(testo) {
 }
 async function apri(id) {
   scelta = risultati?.cards.find(c => c.id === id) || scelta;
-  offerte = null; errore = ""; attesa = true; imgLang = null;
+  offerte = null; errore = ""; attesa = true; imgLingua = null;
   const mio = ++nApertura;
   if (!history.state?.carta) history.pushState({ carta: id }, "");
   viewCarta();
@@ -157,7 +157,7 @@ async function apri(id) {
   if (mio !== nApertura) return;
   attesa = false;
   if (scelta) {
-    viste = [{ id: scelta.id, nome: scelta.name, exp: scelta.exp, version: scelta.version, giorno: oggi(),
+    viste = [{ id: scelta.id, nome: scelta.name, exp: scelta.exp, version: scelta.version, img: scelta.img || null, giorno: oggi(),
       da: offerte?.offerte?.[0]?.da ?? null, cm: scelta.prezzi?.trend ?? null },
       ...viste.filter(v => v.id !== scelta.id)].slice(0, 80);
     salva("viste", viste);
@@ -165,26 +165,33 @@ async function apri(id) {
   if (tab === "carta") viewCarta();
 }
 function indietro(dallaStoria) {
-  scelta = null; offerte = null; errore = ""; imgLang = null;
+  scelta = null; offerte = null; errore = ""; imgLingua = null;
   if (!dallaStoria && history.state?.carta) history.back(); else viewCarta();
 }
 // il tasto indietro del telefono torna alla lista invece di uscire dall'app
 addEventListener("popstate", () => { if (!scelta) return; tab = "carta"; indietro(true); render(); });
 
 // il prezzo che conta: la più economica Near Mint, nella lingua che hai in mano
-let linguaScelta = "it", reverseScelto = false, imgLang = null;
-// l'illustrazione italiana è diversa da quella inglese: con la carta in mano serve quella giusta
+let linguaScelta = "it", reverseScelto = false, imgLingua = null;
+// L'illustrazione italiana è diversa dall'inglese, ma non esiste per tutte le carte: si mostra
+// subito quella che abbiamo (blueprint) e si sostituisce solo quando l'altra è arrivata davvero.
 function immagineCarta(c) {
-  const src = imgLang === false || linguaScelta === "en" ? (c.img || "") : "/api/immagine?bp=" + c.id + "&lang=" + linguaScelta;
-  return src ? `<img class="carta-img" src="${esc(src)}" alt="" onerror="ripiegoImmagine(this)">`
+  const src = imgLingua || c.img || "";
+  return src ? `<img id="cartaimg" class="carta-img" src="${esc(src)}" alt="">`
     : '<div class="carta-img" style="height:184px"></div>';
 }
-// se PokeWallet non ce l'ha in quella lingua si torna all'immagine che abbiamo già
-function ripiegoImmagine(el) {
-  if (imgLang === false || !scelta?.img) { el.replaceWith(Object.assign(document.createElement("div"),
-    { className: "carta-img", style: "height:184px" })); return; }
-  imgLang = false;
-  el.src = scelta.img;
+// prova in sottofondo l'immagine nella lingua scelta: se non c'è, non si tocca nulla
+function provaImmagineLingua(c) {
+  if (!c || linguaScelta === "en" || imgLingua) return;
+  const url = "/api/immagine?bp=" + c.id + "&lang=" + linguaScelta;
+  const p = new Image();
+  p.onload = () => {
+    if (scelta?.id !== c.id) return;                 // nel frattempo hai aperto un'altra carta
+    imgLingua = url;
+    const el = $("#cartaimg");
+    if (el) el.src = url; else viewCarta();
+  };
+  p.src = url;
 }
 const miglior = (lang, rev) => (offerte?.offerte || [])
   .filter(o => o.lang === lang && o.reverse === rev && o.cond === "Near Mint")
@@ -192,16 +199,27 @@ const miglior = (lang, rev) => (offerte?.offerte || [])
 
 // Il prezzo grande è quello della carta che hai in mano: lingua e reverse li scegli tu con
 // due tocchi. Le altre combinazioni restano sotto, per confronto.
-function scegli(lang, rev) { linguaScelta = lang; reverseScelto = rev; imgLang = null; viewCarta(); }
+function scegli(lang, rev) {
+  linguaScelta = lang; reverseScelto = rev; imgLingua = null;
+  viewCarta();
+  provaImmagineLingua(scelta);                       // l'illustrazione segue la lingua che hai scelto
+}
+const ordCond = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };
+// tutte le condizioni in vendita per la carta che hai in mano, dalla migliore alla peggiore
+const condizioniDi = (lang, rev) => (offerte?.offerte || [])
+  .filter(o => o.lang === lang && o.reverse === rev)
+  .sort((a, b) => ordCond(a.cond) - ordCond(b.cond));
 function prezziPrincipali() {
-  const nm = miglior(linguaScelta, reverseScelto);
+  const tutte = condizioniDi(linguaScelta, reverseScelto);
+  const nm = tutte.find(o => o.cond === "Near Mint") || null;
   const altre = [];
   for (const lang of ["it", "en"]) for (const rev of [false, true]) {
     if (lang === linguaScelta && rev === reverseScelto) continue;
-    const o = miglior(lang, rev);
-    if (o) altre.push({ eti: `${LANG_FLAG[lang]} ${LANG_NAME[lang]}${rev ? " reverse" : ""} Near Mint`, val: o.da, n: o.n });
+    const g = condizioniDi(lang, rev);
+    const o = g.find(x => x.cond === "Near Mint") || g[0];
+    if (o) altre.push({ eti: `${LANG_FLAG[lang]} ${LANG_NAME[lang]}${rev ? " reverse" : ""}`, cond: o.cond, val: o.da, n: o.n });
   }
-  return { nm, altre };
+  return { nm, tutte, altre };
 }
 
 function offerteHtml() {
@@ -264,16 +282,23 @@ function confermaPresa() {
 
 function viewCarta() {
   if (scelta) {
-    const c = scelta, p = c.prezzi || {}, { nm, altre } = prezziPrincipali();
+    const c = scelta, p = c.prezzi || {}, { nm, tutte, altre } = prezziPrincipali();
     $("#view").innerHTML = `
       <div class="panel">
         <button class="b" onclick="indietro()">← altra carta</button>
         <div style="display:flex;gap:14px;margin-top:10px">
           ${immagineCarta(c)}
           <div style="flex:1;min-width:0">
-            <div style="font-size:18px"><b>${esc(c.name)}</b></div>
-            <div class="muted small">${esc(c.exp || "")}${c.version ? " · " + esc(c.version) : ""}</div>
-            <div class="note">Controlla che sia questa: stessa espansione, stesso numero.</div>
+            <div style="font-size:19px"><b>${esc(c.name)}</b></div>
+            <div class="small" style="margin-top:4px">${esc(c.exp || "")}</div>
+            ${(() => {
+              // la "versione" del blueprint contiene rarità e numero, separati da |
+              const pezzi = String(c.version || "").split("|").map(x => x.trim()).filter(Boolean);
+              const numero = pezzi.find(x => /\d+\s*\/\s*\d+|^[A-Z]{1,4}\d+/i.test(x));
+              const rarita = pezzi.filter(x => x !== numero).join(" · ");
+              return `<div style="margin-top:6px">${numero ? `<span class="tag">#${esc(numero)}</span> ` : ""}${rarita ? `<span class="tag">${esc(rarita)}</span> ` : ""}<span class="tag">${reverseScelto ? "reverse holo" : "normale"}</span></div>`;
+            })()}
+            <div class="note">Controlla che sia questa: stesso numero e stessa rarità.</div>
           </div>
         </div>
       </div>
@@ -283,16 +308,23 @@ function viewCarta() {
           <button class="b ${reverseScelto ? "p" : ""}" onclick="scegli('${linguaScelta}', ${!reverseScelto})">reverse</button>
         </div>
         ${attesa && !nm ? '<div class="skel" style="height:52px;width:62%"></div><div class="skel" style="height:18px;width:80%;margin-top:10px"></div>' : ""}
-        ${nm ? `<div class="big">${eur(nm.da)}</div>
-          <div class="muted">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])}${reverseScelto ? " reverse" : ""} Near Mint · la più economica in vendita ora (${nm.n} offerte)</div>
-          ${altre.map(r => `<div class="prezzo"><span>${esc(r.eti)}</span><b>${eur(r.val)}</b></div>`).join("")}`
-          : attesa ? "" : `<div class="msg">Nessuna Near Mint così in vendita ora: guarda sotto le altre condizioni.</div>`}
+        ${tutte.length ? `<div class="big">${eur((nm || tutte[0]).da)}</div>
+          <div class="muted">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])} ${reverseScelto ? "reverse" : "normale"} ·
+            ${esc(COND_IT[(nm || tutte[0]).cond] || (nm || tutte[0]).cond)} · la più economica in vendita ora (${(nm || tutte[0]).n} offerte)</div>
+          ${!nm ? '<div class="small warn" style="margin-top:6px">Nessuna Near Mint in vendita: il prezzo sopra è di una copia giocata.</div>' : ""}
+          <div class="small muted" style="margin-top:14px">Tutte le condizioni in vendita ora, da questa versione</div>
+          ${tutte.map(o => `<div class="prezzo"><span>${esc(COND_IT[o.cond] || o.cond)}</span>
+            <span><b>${eur(o.da)}</b> <span class="small muted">${o.n} ${o.n === 1 ? "offerta" : "offerte"}</span></span></div>`).join("")}
+          ${altre.length ? `<div class="small muted" style="margin-top:14px">Altre versioni della stessa carta</div>
+            ${altre.map(r => `<div class="prezzo"><span>${esc(r.eti)} <span class="small muted">${esc(COND_IT[r.cond] || r.cond)}</span></span>
+              <span><b>${eur(r.val)}</b> <span class="small muted">${r.n}</span></span></div>`).join("")}` : ""}`
+          : attesa ? "" : `<div class="msg">Nessuno vende questa versione in questo momento: prova l'altra lingua o il reverse.</div>`}
       </div>
       <div class="azione"><button class="b p big" onclick="presa()">L'ho presa: segna il prezzo</button></div>
       <div class="panel">
-        <b>Tutte le offerte su CardTrader</b>
-        <div class="note" style="margin-top:2px">Prezzi richiesti adesso. CardTrader mostra le 25 più economiche: se mancano le Near Mint, sotto ci sono solo copie giocate.</div>
-        <div style="margin-top:10px">${offerteHtml()}</div>
+        <details><summary><b>Tutte le lingue, una per una</b></summary>
+          <div class="note" style="margin-top:2px">Prezzi richiesti adesso. CardTrader mostra le 25 offerte più economiche per carta: se mancano le Near Mint, sotto ci sono solo copie giocate.</div>
+          <div style="margin-top:10px">${offerteHtml()}</div></details>
         <a class="b" href="${esc(offerte?.url || ("https://www.cardtrader.com/cards/" + c.id))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">Apri su CardTrader</a>
       </div>
       <div class="panel">
@@ -303,6 +335,7 @@ function viewCarta() {
           ${p.trendHolo ? `<div class="prezzo"><span>Trend reverse</span><b>${eur(p.trendHolo)}</b></div>` : ""}
           ${p.avg30Holo ? `<div class="prezzo"><span>Media 30 g. reverse</span><b>${eur(p.avg30Holo)}</b></div>` : ""}`}
       </div>`;
+    provaImmagineLingua(c);
     return;
   }
   $("#view").innerHTML = `
@@ -368,7 +401,7 @@ function copiaGiornata() {
 async function riapri(id) {
   const v = viste.find(x => x.id === id);
   if (!v) return;
-  scelta = { id: v.id, name: v.nome, exp: v.exp, version: v.version, img: null, cm: null, prezzi: null };
+  scelta = { id: v.id, name: v.nome, exp: v.exp, version: v.version, img: v.img || null, cm: null, prezzi: null };
   tab = "carta";
   await apri(id);
   render();
