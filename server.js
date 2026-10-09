@@ -223,7 +223,7 @@ async function findCards(q) {
     if (!parole.every(p => c.cerca.includes(p))) continue;
     const p = c.cm != null ? g.prices.get(c.cm) : null;
     out.push({ ...c, cerca: undefined, esatto: numeri.every(r => r.test(c.cerca)),
-      prezzi: p ? { trend: p.trend || null, avg30: p.avg30 || null, trendHolo: p.trendHolo || null, avg30Holo: p.avg30Holo || null } : null });
+      prezzi: p ? { low: p.low || null, trend: p.trend || null, avg30: p.avg30 || null, trendHolo: p.trendHolo || null, avg30Holo: p.avg30Holo || null } : null });
   }
   // prima il numero esatto, poi le carte che valgono di piu': al mercatino sono quelle che contano
   out.sort((a, b) => (b.esatto - a.esatto) ||

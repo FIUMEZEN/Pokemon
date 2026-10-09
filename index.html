@@ -209,6 +209,20 @@ const ordCond = c => { const i = COND_ORD.indexOf(c); return i < 0 ? 99 : i; };
 const condizioniDi = (lang, rev) => (offerte?.offerte || [])
   .filter(o => o.lang === lang && o.reverse === rev)
   .sort((a, b) => ordCond(a.cond) - ordCond(b.cond));
+// Il valore di riferimento viene dal listino Cardmarket, non dai prezzi richiesti su CardTrader:
+// misurato il 09/10/2026 al mercatino, la Near Mint più economica sta a ~1,0× il listino e sembra
+// il "valore", mentre il «da X €» che Cardmarket mostra sul telefono (campo low) sta a 0,35-0,57×.
+// Sono tre numeri diversi: qui si dice chiaramente quale è quale.
+function rifCardmarket() {
+  const p = scelta?.prezzi || {};
+  const hol = reverseScelto && (p.trendHolo || p.avg30Holo);
+  const t = hol ? p.trendHolo : p.trend, a = hol ? p.avg30Holo : p.avg30;
+  const v = [t, a].filter(x => x > 0);
+  if (!v.length) return null;
+  return { val: Math.min(...v), trend: t || null, avg30: a || null,
+    ripiegoNormale: reverseScelto && !hol,                 // Cardmarket non prezza il reverse
+    instabile: v.length === 2 && Math.max(...v) > 2 * Math.min(...v) };
+}
 function prezziPrincipali() {
   const tutte = condizioniDi(linguaScelta, reverseScelto);
   const nm = tutte.find(o => o.cond === "Near Mint") || null;
@@ -307,10 +321,23 @@ function viewCarta() {
           ${["it", "en"].map(l => `<button class="b ${linguaScelta === l ? "p" : ""}" onclick="scegli('${l}', ${reverseScelto})">${LANG_FLAG[l]} ${LANG_NAME[l]}</button>`).join("")}
           <button class="b ${reverseScelto ? "p" : ""}" onclick="scegli('${linguaScelta}', ${!reverseScelto})">reverse</button>
         </div>
-        ${attesa && !nm ? '<div class="skel" style="height:52px;width:62%"></div><div class="skel" style="height:18px;width:80%;margin-top:10px"></div>' : ""}
-        ${tutte.length ? `<div class="big">${eur((nm || tutte[0]).da)}</div>
-          <div class="muted">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])} ${reverseScelto ? "reverse" : "normale"} ·
-            ${esc(COND_IT[(nm || tutte[0]).cond] || (nm || tutte[0]).cond)} · la più economica in vendita ora (${(nm || tutte[0]).n} offerte)</div>
+        ${(() => {
+          const r = rifCardmarket();
+          if (!r) return c.cm == null
+            ? '<div class="msg">Cardmarket non prezza questa carta (succede con le giapponesi): qui sotto ci sono solo i prezzi richiesti su CardTrader, che non sono un valore.</div>'
+            : '<div class="msg">Il listino Cardmarket non ha un prezzo per questa carta: nessuno la vende da un po\u2019.</div>';
+          return `<div class="big">${eur(r.val)}</div>
+            <div class="muted">Valore di listino Cardmarket${reverseScelto && !r.ripiegoNormale ? " (reverse)" : ""} · quanto vale vendendola con calma</div>
+            <div class="small muted" style="margin-top:4px">il più prudente tra trend ${eur(r.trend)} e media 30 giorni ${eur(r.avg30)}</div>
+            ${r.instabile ? '<div class="small warn" style="margin-top:6px">Trend e media a 30 giorni sono molto distanti: su questa carta il valore è un\u2019ipotesi, non fidarti del numero.</div>' : ""}
+            ${r.ripiegoNormale ? '<div class="small warn" style="margin-top:6px">Cardmarket non prezza il reverse di questa carta: sopra c\u2019è il valore della normale.</div>' : ""}
+            ${linguaScelta === "it" ? '<div class="small" style="margin-top:6px">Il listino non distingue la lingua. Le italiane si vendono spesso intorno a tre quarti di questo prezzo.</div>' : ""}`;
+        })()}
+        ${attesa && !nm ? '<div class="skel" style="height:30px;width:46%;margin-top:16px"></div><div class="skel" style="height:18px;width:80%;margin-top:8px"></div>' : ""}
+        ${tutte.length ? `<div class="small muted" style="margin-top:16px">Per venderla presto devi stare qui</div>
+          <div style="font-size:30px;font-variant-numeric:tabular-nums"><b>${eur((nm || tutte[0]).da)}</b></div>
+          <div class="muted small">${LANG_FLAG[linguaScelta]} ${esc(LANG_NAME[linguaScelta])} ${reverseScelto ? "reverse" : "normale"} ·
+            ${esc(COND_IT[(nm || tutte[0]).cond] || (nm || tutte[0]).cond)} · la più economica in vendita ora su CardTrader (${(nm || tutte[0]).n} offerte)</div>
           ${!nm ? '<div class="small warn" style="margin-top:6px">Nessuna Near Mint in vendita: il prezzo sopra è di una copia giocata.</div>' : ""}
           <div class="small muted" style="margin-top:14px">Tutte le condizioni in vendita ora, da questa versione</div>
           ${tutte.map(o => `<div class="prezzo"><span>${esc(COND_IT[o.cond] || o.cond)}</span>
@@ -318,7 +345,7 @@ function viewCarta() {
           ${altre.length ? `<div class="small muted" style="margin-top:14px">Altre versioni della stessa carta</div>
             ${altre.map(r => `<div class="prezzo"><span>${esc(r.eti)} <span class="small muted">${esc(COND_IT[r.cond] || r.cond)}</span></span>
               <span><b>${eur(r.val)}</b> <span class="small muted">${r.n}</span></span></div>`).join("")}` : ""}`
-          : attesa ? "" : `<div class="msg">Nessuno vende questa versione in questo momento: prova l'altra lingua o il reverse.</div>`}
+          : attesa ? "" : `<div class="msg">Nessuno la vende in questa lingua in questo momento: resta il valore di listino qui sopra. Prova l'altra lingua o il reverse.</div>`}
       </div>
       <div class="azione"><button class="b p big" onclick="presa()">L'ho presa: segna il prezzo</button></div>
       <div class="panel">
@@ -333,7 +360,11 @@ function viewCarta() {
           <div class="prezzo"><span>Trend</span><b>${eur(p.trend)}</b></div>
           <div class="prezzo"><span>Media 30 giorni</span><b>${eur(p.avg30)}</b></div>
           ${p.trendHolo ? `<div class="prezzo"><span>Trend reverse</span><b>${eur(p.trendHolo)}</b></div>` : ""}
-          ${p.avg30Holo ? `<div class="prezzo"><span>Media 30 g. reverse</span><b>${eur(p.avg30Holo)}</b></div>` : ""}`}
+          ${p.avg30Holo ? `<div class="prezzo"><span>Media 30 g. reverse</span><b>${eur(p.avg30Holo)}</b></div>` : ""}
+          <details style="margin-top:8px"><summary>Perché sul telefono Cardmarket dice «da ${eur(p.low)}»?</summary>
+            <div class="note" style="margin-top:4px">Quel numero è la copia più economica in assoluto: qualsiasi lingua, qualsiasi condizione, anche carte giocate o rovinate. Misurato sul listino di oggi, sta in mediana al 57% del valore e su certe carte a un decimo. Non è il valore di questa carta, e l'app non lo usa per nessun conto.</div>
+          </details>`}
+        <div class="note" style="margin-top:8px">Prezzi lordi: vendendo lasci circa il 6-7% di commissioni, più l'imballaggio.</div>
       </div>`;
     provaImmagineLingua(c);
     return;
