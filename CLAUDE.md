@@ -20,7 +20,7 @@ Misurato quel giorno, e da non rifare:
 - Quindi **non era un errore nei dati ma nella scelta del numero grande**: l'app metteva in cima un prezzo *richiesto* (≈1,0× il valore), il telefono mostrava il *minimo assoluto* (≈0,35×), e il valore stava in mezzo.
 
 **Gerarchia attuale della schermata Carta** (rivista con Sol e Grok, d'accordo su tutto tranne dove indicato):
-1. **Numero grande = valore di listino Cardmarket**, `min(trend, avg30)`, colonne holo quando si scegle il reverse (se Cardmarket non prezza il reverse si usa la normale **dicendolo**). Etichetta: «quanto vale vendendola con calma», con sotto i due numeri da cui viene.
+1. **Numero grande = valore di listino Cardmarket**, `min(trend, avg30)`, colonne holo quando scegli il reverse (se Cardmarket non prezza il reverse si usa la normale **dicendolo**). Etichetta: «quanto vale vendendola con calma», con sotto i due numeri da cui viene.
 2. **Avviso se trend e media 30 giorni divergono oltre 2×** (stesso test di `solidity()`): su quelle carte il valore è un'ipotesi. Caso vero: Raichu Expedition, trend 348,45 € contro media 159,19 €.
 3. **Il prezzo richiesto su CardTrader resta, più piccolo**: «per venderla presto devi stare qui», con tutte le condizioni sotto.
 4. **`low` solo in una tendina** («perché sul telefono Cardmarket dice da X €»), perché è il numero che Fabio vede e deve capire, **e non entra in nessun calcolo** (resta il divieto misurato).
